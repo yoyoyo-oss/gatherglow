@@ -512,6 +512,40 @@ body.fit5 .today{bottom:10px}
 .wback b{font-weight:600}
 .jline{margin-top:14px;font-size:13px;color:var(--muted)}
 .jline b{color:var(--ink);font-weight:600}
+
+/* ---- voting: easy to see ---- */
+.vstat{margin-top:16px;padding:13px 15px;border-radius:16px;background:var(--accent);color:#fff;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 8px 22px -10px rgba(226,85,45,.7);animation:vpulse 2.4s ease-in-out infinite}
+.vstat.done{background:var(--ink);box-shadow:none;animation:none}
+.vstat b{display:block;font-family:var(--font-d);font-size:15.5px;font-weight:700}
+.vstat small{display:block;font-size:12.5px;opacity:.9;margin-top:2px}
+.vstat .who{display:flex;margin-left:auto}
+.vstat .who i{width:26px;height:26px;border-radius:50%;border:2px solid #fff;margin-left:-6px;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;color:#fff}
+.vstat .who i.wait{opacity:.4;filter:grayscale(.6)}
+@keyframes vpulse{0%,100%{box-shadow:0 8px 22px -10px rgba(226,85,45,.7)}50%{box-shadow:0 8px 30px -6px rgba(226,85,45,.95)}}
+@media (prefers-reduced-motion:reduce){.vstat{animation:none}}
+.pcard{border:1px solid var(--line);border-radius:14px;background:var(--paper-solid);overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.pcard.top{border-color:var(--accent);box-shadow:0 0 0 2px rgba(226,85,45,.2)}
+.pcard .plan-row{border:0;border-radius:0;width:100%;background:transparent}
+.pcard .plan-row:hover{transform:none;background:rgba(23,23,28,.02)}
+.vrow{display:flex;align-items:center;gap:8px;padding:9px 14px 11px;border-top:1px dashed var(--line)}
+.vq{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid var(--accent);color:var(--accent);background:#fff;border-radius:99px;padding:7px 15px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s,transform .1s}
+.vq:hover{background:rgba(226,85,45,.08)}
+.vq:active{transform:scale(.96)}
+.vq.on{background:var(--accent);color:#fff}
+.vq.no{border-color:var(--line);color:var(--muted);padding:7px 11px}
+.vq.no.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.vmeter{flex:1;min-width:30px;height:7px;border-radius:99px;background:var(--chip);overflow:hidden}
+.vmeter i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .5s ease}
+.vcount{font-size:12.5px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.vfaces{display:flex}
+.vfaces i{width:20px;height:20px;border-radius:50%;border:2px solid #fff;margin-left:-5px;display:grid;place-items:center;font-style:normal;font-size:9.5px;font-weight:700;color:#fff}
+.vbig{display:grid;grid-template-columns:1.4fr 1fr;gap:10px;margin-top:14px}
+.vbig button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:13px 10px;border-radius:14px;border:1.5px solid var(--accent);background:#fff;color:var(--accent);font-family:var(--font-d);font-size:16px;font-weight:700;cursor:pointer;transition:background .15s,color .15s,transform .1s}
+.vbig button small{font-family:var(--font-b);font-size:12px;font-weight:500;opacity:.85}
+.vbig button:active{transform:scale(.97)}
+.vbig button.on{background:var(--accent);color:#fff}
+.vbig button.no{border-color:var(--line);color:var(--muted)}
+.vbig button.no.on{background:var(--ink);border-color:var(--ink);color:#fff}
 </style>
 </head>
 <body>

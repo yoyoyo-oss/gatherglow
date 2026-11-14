@@ -965,15 +965,37 @@ function renderPlanList(){
     <p class="kicker">${esc(planMeta())}</p>
     <h2>${state.options.length} ways to spend the day</h2>
     <h4>Everyone free</h4>${dayBar(null)}
+    ${voteBanner()}
     ${aiBox}
-    <div class="plan-list">${state.options.map((o,i)=>{ const st=budgetStatus(o.perPerson,c.cap),t=tally(i),sch=schedule(o); return `<button type="button" class="plan-row ${state.selected===i?'sel':''}" data-i="${i}"><i style="background:${THEMES[i%3].base}"></i><div><b>${esc(o.label)}${o.ai?' <span class="badge aib">AI</span>':''}${o.suggestedBy?` <span class="badge ok">by ${esc(o.suggestedBy)}</span>`:''}${i===w&&t.up?' <span class="badge live">Top voted</span>':''}</b><small>${hs(sch[0].s)}–${hs(sch[sch.length-1].end)} · ${sch.map(x=>esc(short(x.v))).join(' → ')}</small><br><span class="badge ${st.level==='none'?'ok':st.level}">${st.level==='over'?'Over budget':st.level==='warn'?'Near limit':'Fits budget'}</span> <small>${o.wish} wish${o.wish===1?'':'es'} · ${t.up} votes</small></div><span class="pp">${money(o.perPerson)}<small>per person</small></span></button>`; }).join('')}</div>
+    <div class="plan-list">${state.options.map((o,i)=>{ const st=budgetStatus(o.perPerson,c.cap),t=tally(i),sch=schedule(o),my=votesFor(i)[state.meId],n=Math.max(state.people.length,1); return `<div class="pcard ${i===w&&t.up?'top':''} ${my===1?'mine':''}"><button type="button" class="plan-row ${state.selected===i?'sel':''}" data-i="${i}"><i style="background:${THEMES[i%3].base}"></i><div><b>${esc(o.label)}${o.ai?' <span class="badge aib">AI</span>':''}${o.suggestedBy?` <span class="badge ok">by ${esc(o.suggestedBy)}</span>`:''}${i===w&&t.up?' <span class="badge live">Top voted</span>':''}</b><small>${hs(sch[0].s)}–${hs(sch[sch.length-1].end)} · ${sch.map(x=>esc(short(x.v))).join(' → ')}</small><br><span class="badge ${st.level==='none'?'ok':st.level}">${st.level==='over'?'Over budget':st.level==='warn'?'Near limit':'Fits budget'}</span> <small>${o.wish} wish${o.wish===1?'':'es'}</small></div><span class="pp">${money(o.perPerson)}<small>per person</small></span></button>
+      <div class="vrow"><button type="button" class="vq ${my===1?'on':''}" data-qv="${i}" data-v="1" aria-pressed="${my===1}">${my===1?'✓ Voted':'Vote for this'}</button><button type="button" class="vq no ${my===-1?'on':''}" data-qv="${i}" data-v="-1" aria-pressed="${my===-1}" aria-label="Not for me">✕</button>
+        <span class="vmeter" aria-hidden="true"><i style="width:${Math.round(t.up/n*100)}%"></i></span><span class="vcount">${t.up} of ${n} yes</span><span class="vfaces">${upVoters(i).map(p=>`<i style="background:${p.color}" title="${esc(p.name)}">${esc(p.name.charAt(0).toUpperCase())}</i>`).join('')}</span></div></div>`; }).join('')}</div>
     <p class="hint" style="margin-top:12px">${state.people.length} people · votes and comments update live for everyone.</p>
     <div class="btnrow"><button class="btn line sm" id="refreshBtn" type="button">Rebuild plans</button>${state.isOrganizer?'<button class="btn dark sm" id="lockTop" type="button">Lock in top plan</button>':''}</div>${state.isOrganizer?'':'<p class="hint">The person who created the plan locks in the winner.</p>'}
     <p class="note">Ticket prices as listed online; booking fees may apply. Food prices are estimates; hours approximate. Checked ${prettyDate(DATA.checked_on)}.</p>`;
   $$('#plansPanel .plan-row').forEach(b=>b.onclick=()=>selectPlan(+b.dataset.i));
+  $$('#plansPanel [data-qv]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); castVote(+b.dataset.qv,+b.dataset.v); });
   $('#refreshBtn').onclick=()=>{ state.selected=-1; $('#detail').classList.remove('show'); refreshOptions(); renderPlanList(); toast('Plans rebuilt from everyone’s latest answers'); };
   const lt=$('#lockTop'); if(lt) lt.onclick=()=>lockPlan(winnerIdx());
   const ab=$('#aiBtn'); if(ab) ab.onclick=askAI;
+}
+/* voting: one helper for the list and the detail; a banner shows who still has to vote */
+async function castVote(i,v){
+  if(!state.meId) return toast('Make your planet first, then you can vote');
+  const o=state.options[i], my=votesFor(i)[state.meId], nv=my===v?0:v;
+  try{ const r=await api('POST','/plans/'+state.planId+'/vote',{token:TOKEN,key:optKey(o),value:nv}); applyPlan(r.plan);
+    if(nv===1){ if(worlds[i]) sparks.emit(worlds[i].slot.clone().add(new V3(0,1,0)),[me().color,'#ffffff'],40,3); toast(`You voted for “${o.label}”`); }
+    else if(nv===-1) toast('Noted. You’re not keen on this one'); else toast('Vote removed'); }
+  catch(e){ toast(e.message); }
+}
+function votedIds(){ const s=new Set(); (state.options||[]).forEach((o,i)=>Object.entries(votesFor(i)).forEach(([id,v])=>{ if(v) s.add(id); })); return s; }
+function voteBanner(){
+  const done=votedIds(), n=state.people.length, k=state.people.filter(p=>done.has(p.id)).length, mine=state.meId&&done.has(state.meId);
+  const faces=state.people.map(p=>`<i class="${done.has(p.id)?'':'wait'}" style="background:${p.color}" title="${esc(p.name)}${done.has(p.id)?' voted':' hasn’t voted yet'}">${esc(p.name.charAt(0).toUpperCase())}</i>`).join('');
+  const waiting=state.people.filter(p=>!done.has(p.id)&&p.id!==state.meId).map(p=>p.name);
+  const title=!state.meId?'Join to vote':!mine?'Your turn: vote for the plan you want':k===n?'Everyone has voted':'You voted';
+  const sub=!mine&&state.meId?`Tap “Vote for this” on a plan below. ${k} of ${n} have voted.`:k===n?(state.isOrganizer?'Lock in the top plan when you’re ready.':'The organizer locks in the top plan.'):`${k} of ${n} have voted · waiting for ${esc(waiting.slice(0,3).join(', '))}${waiting.length>3?' and others':''}`;
+  return `<div class="vstat ${mine?'done':''}"><div><b>${title}</b><small>${sub}</small></div><span class="who">${faces}</span></div>`;
 }
 let tab='plan';
 function selectPlan(i){ state.selected=i; tab='plan'; setView(); renderPlanList(); renderDetail(); $('#detail').classList.add('show'); $('#plansPanel').classList.remove('show'); }
@@ -1000,14 +1022,13 @@ function renderDetail(){
     <p class="kicker">${esc(o.label)}${o.ai?' · AI':''}</p>
     <h2>${money(o.perPerson)} per person</h2>
     <p class="lede" style="margin-top:6px">${o.why?esc(o.why):`${o.stops.length} stops · ${hs(o.stops[0].start)} to ${hs(schedule(o).slice(-1)[0].end)} · ${o.wish} wishes covered`}</p>
-    <div class="tabs" role="tablist">${[['plan','Itinerary'],['cost','Cost'],['vote',`Vote · ${t.up}`]].map(([k,l])=>`<button type="button" role="tab" class="${tab===k?'on':''}" data-tab="${k}">${l}</button>`).join('')}</div>
+    <div class="vbig"><button type="button" class="${my===1?'on':''}" data-vote="1" aria-pressed="${my===1}"><span>${my===1?'✓ You’re in':'I’m in'}</span><small>${t.up} yes</small></button><button type="button" class="no ${my===-1?'on':''}" data-vote="-1" aria-pressed="${my===-1}"><span>Not for me</span><small>${t.down} no</small></button></div>
+    <div class="voters">${upVoters(i).map(p=>`<i style="background:${p.color}"></i>`).join('')}${upVoters(i).length?upVoters(i).map(p=>esc(p.name)).join(', ')+' voted yes':'No yes votes yet. Be the first.'}</div>
+    <div class="tabs" role="tablist">${[['plan','Itinerary'],['cost','Cost'],['vote',`Comments · ${(state.comments[key]||[]).length}`]].map(([k,l])=>`<button type="button" role="tab" class="${tab===k?'on':''}" data-tab="${k}">${l}</button>`).join('')}</div>
     <div class="tabpane ${tab==='plan'?'on':''}">${dayBar(o.stops)}<ul class="stops">${stops}</ul><h4>Why it works</h4><div class="why">${why}</div>${appsHtml(o)}</div>
     <div class="tabpane ${tab==='cost'?'on':''}">${pricePanel(o)}</div>
     <div class="tabpane ${tab==='vote'?'on':''}">
-      <p class="hint" style="margin-top:0">Voting as ${esc(viewer?viewer.name:'guest')}</p>
-      <div class="votebox" style="margin-top:8px"><button type="button" class="vbtn ${my===1?'on':''}" data-vote="1">Yes · ${t.up}</button><button type="button" class="vbtn ${my===-1?'on':''}" data-vote="-1">No · ${t.down}</button></div>
-      <div class="voters">${upVoters(i).map(p=>`<i style="background:${p.color}"></i>`).join('')}${upVoters(i).map(p=>esc(p.name)).join(', ')||'No yes votes yet'}</div>
-      <h4>Comments</h4><div class="comments">${cm}</div>
+      <div class="comments">${cm}</div>
       <div class="cmt-in"><input type="text" id="cmtIn" maxlength="200" placeholder="Comment as ${esc(viewer?viewer.name:'guest')}"><button class="btn dark sm" id="postBtn" type="button">Post</button></div>
     </div>
     <div class="detail-foot">${state.isOrganizer?`<button class="btn primary full" id="lockBtn" type="button" ${i===w?'':'disabled'}>Lock in this plan</button><p class="hint" style="text-align:center">${i===w?'This is the group’s top-voted plan.':'Only the top-voted plan can be locked in.'}</p>`:`<p class="hint" style="text-align:center">${i===w?'This is the group’s top-voted plan. The organizer locks it in.':'Vote for the plan you want. The organizer locks in the winner.'}</p>`}</div>`;
@@ -1015,8 +1036,7 @@ function renderDetail(){
   $$('#detail [data-tab]').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; renderDetail(); });
   $$('#detail [data-swap]').forEach(b=>b.onclick=async()=>{ if(!state.meId) return toast('Join the plan first'); const s=swap(o,b.dataset.swap); if(!s) return toast('Nothing else fits everyone’s time and budget');
     try{ const r=await api('POST','/plans/'+state.planId+'/suggest',{token:TOKEN,option:{stops:s.stops,label:o.label,perPerson:s.perPerson}}); state.selected=-1; applyPlan(r.plan); refreshOptions(); const ni=state.options.findIndex(x=>optKey(x)===optKey(s)); renderPlanList(); if(ni>=0) selectPlan(ni); toast(`Shared with the group as a new option: ${money(s.perPerson)} per person`); }catch(e){ toast(e.message); } });
-  $$('#detail [data-vote]').forEach(b=>b.onclick=async()=>{ if(!state.meId) return toast('Join the plan first'); const v=+b.dataset.vote, nv=my===v?0:v;
-    try{ const r=await api('POST','/plans/'+state.planId+'/vote',{token:TOKEN,key,value:nv}); applyPlan(r.plan); if(nv===1&&worlds[i]) sparks.emit(worlds[i].slot.clone().add(new V3(0,1,0)),[me().color,'#ffffff'],40,3); }catch(e){ toast(e.message); } });
+  $$('#detail [data-vote]').forEach(b=>b.onclick=()=>castVote(i,+b.dataset.vote));
   const post=async()=>{ if(!state.meId) return toast('Join the plan first'); const tx=$('#cmtIn').value.trim(); if(!tx) return; try{ const r=await api('POST','/plans/'+state.planId+'/comment',{token:TOKEN,key,text:tx}); $('#cmtIn').blur(); applyPlan(r.plan); }catch(e){ toast(e.message); } };
   $('#postBtn').onclick=post; $('#cmtIn').onkeydown=e=>{ if(e.key==='Enter') post(); };
   const lb=$('#lockBtn'); if(lb) lb.onclick=()=>lockPlan(i);

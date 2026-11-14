@@ -14,8 +14,8 @@
 3. In **Your crew**, click **Open as a second person ↗**. A new tab opens as a different person. Join with different times and a different budget.
 4. The first tab updates live. Click **Bring everyone together**, drag the planets in, and see three plans drawn on a 3D Manhattan.
 5. Vote and comment in both tabs. The plan's creator locks the top plan and books (simulated codes).
-6. **Come back:** open **My plans** in the header: your plans, the friends you plan with, outings booked and money kept under budget. Your planet is pre-filled in the next plan, and **Remind me in 4 weeks** downloads a calendar reminder.
-7. **Paywall:** click **Ask AI to organize**, create a second plan in the same month, or open **Pricing**. Choose Event Pass, Plus, Family or Crew. Pay with Stripe test card `4242 4242 4242 4242`, any future date, any CVC. Plus unlocks, and the AI organizer runs on Claude.
+6. **Come back:** open **Me → My plans** in the header: your plans, the friends you plan with, outings booked and money kept under budget. Your planet is pre-filled in the next plan, and **Remind me in 4 weeks** downloads a calendar reminder.
+7. **Paywall:** click **Ask AI to organize**, create a second plan in the same month, or open **Subscribe**. Choose Event Pass, Plus, Family or Crew. Pay with Stripe test card `4242 4242 4242 4242`, any future date, any CVC. Plus unlocks, and the AI organizer runs on Claude.
 
 ### Real data vs test data
 

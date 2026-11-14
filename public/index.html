@@ -606,6 +606,21 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
 .cover::after{z-index:3}
 .tcard .pills{flex-wrap:nowrap;overflow:hidden}
 .tcard .pills span{flex:none}
+
+/* ---- header "Me" menu ---- */
+.memenu{position:relative}
+.mebtn{display:inline-flex;align-items:center;gap:7px;padding:5px 10px 5px 5px}
+.meav{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700;letter-spacing:.02em}
+.mebtn .badge{margin:0}
+.medrop{position:absolute;right:0;top:100%;padding-top:8px;display:none;z-index:30;min-width:190px}
+.medrop::before{content:"";position:absolute;inset:8px 0 0 0;background:var(--paper-solid);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 40px rgba(20,20,30,.14)}
+.medrop button{position:relative;display:block;width:100%;text-align:left;border:0;background:none;padding:11px 16px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink)}
+.medrop button:first-child{margin-top:4px}.medrop button:last-child{margin-bottom:4px}
+.medrop button:hover,.medrop button:focus-visible{background:var(--chip)}
+.medrop button[hidden]{display:none}
+.memenu:hover .medrop,.memenu:focus-within .medrop,.memenu.open .medrop{display:block}
+.sub-btn{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.sub-btn:hover{background:#cf4a24;border-color:#cf4a24}
 </style>
 </head>
 <body>
@@ -625,14 +640,18 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
     <button data-go="5"><i>05</i><span>Book</span></button>
   </nav>
   <div class="spacer"></div>
-  <span class="badge aib" id="plusBadge" hidden>Plus</span>
-  <button class="ghost-btn" id="myPlansBtn" type="button" hidden>My plans</button>
   <button class="ghost-btn" id="judgeBtn" type="button">For judges</button>
   <button class="ghost-btn" id="alertBtn" type="button" hidden>Alerts<span class="bcount" id="alertCount" hidden></span></button>
   <button class="ghost-btn" id="howBtn" type="button">How it works</button>
-  <button class="ghost-btn" id="pricingBtn" type="button">Pricing</button>
-  <button class="ghost-btn" id="whatsonBtn" type="button">What’s on</button>
-  <button class="ghost-btn" id="restart" type="button">New plan</button>
+  <button class="ghost-btn sub-btn" id="pricingBtn" type="button">Subscribe</button>
+  <button id="whatsonBtn" type="button" hidden></button>
+  <div class="memenu" id="meMenu">
+    <button class="ghost-btn mebtn" id="meBtn" type="button" aria-haspopup="menu" aria-expanded="false"><span class="meav" id="meAv">Me</span><span id="meName">Me</span><span class="badge aib" id="plusBadge" hidden>Plus</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    <div class="medrop" role="menu" aria-label="Me">
+      <button type="button" role="menuitem" id="myPlansBtn">My plans</button>
+      <button type="button" role="menuitem" id="restart">Create new plan</button>
+    </div>
+  </div>
 </header>
 
 <!-- STEP 1: welcome (scroll or tap to reveal the planning card) -->
@@ -640,9 +659,7 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
   <p class="kicker acc">Manhattan, New York City</p>
   <h1>Good Plans,<br>Great Memories.</h1>
   <p class="lede">Bring your favorite people. We’ll take care of the little things: the hours you’re all free, places everyone will love, and a price that fits every budget.</p>
-  <ol class="isteps"><li><i>1</i>Add your day</li><li><i>2</i>Pick what you’d love</li><li><i>3</i>Let AI plan the evening</li></ol>
   <div class="btnrow"><button class="btn primary" type="button" id="introGo">Start planning</button><span>or scroll down</span></div>
-  <p class="jline">No sign-up · Free for 1 plan a month · <b>Plus $9.99 · Family $19.99 · Crew $24.99 /month</b> · <button class="textlink" type="button" id="judgeLink">Judging? 5-minute guide →</button></p>
   <div class="wback" id="wback" hidden></div>
 </section>
 <section class="today" id="today" aria-label="What's on today in New York"></section>
@@ -660,7 +677,7 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
     <div class="weekday" id="weekday"></div>
     <div class="btnrow"><button class="btn primary" type="submit">Start planning</button><button class="btn line" type="button" id="demoBtn">Try with a sample group</button></div>
   </form>
-  <p class="note">No sign-up. Budgets stay private. <button class="textlink" type="button" id="howLink">How it works →</button></p>
+  <p class="note">No sign-up. Budgets stay private. <button class="textlink" type="button" id="howLink">How it works →</button> · <button class="textlink" type="button" id="backIntro">↑ Back to What’s on today</button></p>
 </section>
 <aside class="panel tease" data-panel="1" id="tease" aria-label="Happening that day"></aside>
 
@@ -808,8 +825,8 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
       <li><span>In “Your crew”, click <b>Open as a second person ↗</b>. A new tab opens as a different person. Join there with different times and a different budget.</span></li>
       <li><span>Back in the first tab the crew and shared free time <b>update live</b>. Click <b>Bring everyone together</b>, drag the planets in, and see 3 plans on the real Manhattan map.</span></li>
       <li><span><b>Vote and comment in both tabs.</b> The creator locks in the top plan and books (simulated).</span></li>
-      <li><span><b>Come back</b>: open <b>My plans</b> in the header. Your plans, friends and outings are saved, your planet is pre-filled next time, and “Remind me in 4 weeks” adds a calendar reminder.</span></li>
-      <li><span><b>Paywall</b>: click “Ask AI to organize”, create a second plan, or open <b>Pricing</b>. Pick an Event Pass, Plus, Family or Crew. Pay with Stripe test card <b>4242 4242 4242 4242</b>, then the AI organizer runs on Claude.</span></li>
+      <li><span><b>Come back</b>: open <b>Me → My plans</b> in the header. Your plans, friends and outings are saved, your planet is pre-filled next time, and “Remind me in 4 weeks” adds a calendar reminder.</span></li>
+      <li><span><b>Paywall</b>: click “Ask AI to organize”, create a second plan, or open <b>Subscribe</b>. Pick an Event Pass, Plus, Family or Crew. Pay with Stripe test card <b>4242 4242 4242 4242</b>, then the AI organizer runs on Claude.</span></li>
     </ol>
     <h4>Real data vs test data</h4>
     <div class="why">

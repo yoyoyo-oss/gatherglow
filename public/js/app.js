@@ -435,7 +435,7 @@ canvas.addEventListener('pointermove',e=>{
 canvas.addEventListener('pointerdown',e=>{ ptr.down=true; ptr.x=e.clientX; ptr.y=e.clientY; ptr.moved=0; canvas.setPointerCapture(e.pointerId); ndc.set(e.clientX/W*2-1,-(e.clientY/H)*2+1); const o=pick(); if(state.step===3&&o&&o.userData&&o.userData.person){ const en=ents.find(x=>x.obj===o); if(en&&en.mode==='orbit'){ en.mode='drag'; en.dragTo=en.obj.position.clone(); en.rayDist=99; ptr.drag=en; tip.classList.remove('show'); } } else canvas.className='grabbing'; });
 canvas.addEventListener('pointerup',()=>{ ptr.down=false; canvas.className='grab'; if(ptr.drag){ const en=ptr.drag; ptr.drag=null; if((en.rayDist??99)<2.6) absorb(en); else { en.mode='fly'; en.t=0; en.from=en.obj.position.clone(); if(ptr.moved>8) toast('Closer. Drop it right on the city.'); } return; } if(ptr.moved<6) onClick(pick()); });
 canvas.addEventListener('pointerleave',()=>{ tip.classList.remove('show'); ndc.set(-9,-9); });
-canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(intro){ if(e.deltaY>4) dismissIntro(); return; } user.r=Math.max(-8,Math.min(12,user.r+e.deltaY*.012)); },{passive:false});
+canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(intro){ if(e.deltaY>4) dismissIntro(); return; } if(state.step===1&&e.deltaY<-4){ showIntro(); return; } user.r=Math.max(-8,Math.min(12,user.r+e.deltaY*.012)); },{passive:false});
 function onClick(o){ if(!o) return; if(o.pin){ if(state.step===4){ tab='plan'; if(state.selected!==o.pin.i) selectPlan(o.pin.i); else renderDetail(); } return; } if(state.step===2&&o.userData&&o.userData.person) editPerson(o.userData.person.id); }
 
 /* helpers */
@@ -576,11 +576,24 @@ function goStep(n){
 }
 function discardPlans(){ state.options=null; state.selected=-1; state.ai=null; clearWorlds(); $('#detail').classList.remove('show'); ents.forEach(e=>{ e.mode='orbit'; e.obj.visible=true; e.obj.scale.setScalar(PS); }); core.visible=true; core.scale.setScalar(1); coreShrink=0; state.maxStep=Math.min(state.maxStep,3); }
 $$('#steps button').forEach(b=>b.onclick=()=>goStep(+b.dataset.go));
-function dismissIntro(){ if(!intro) return; intro=false; goStep(1); }
-$('#introGo').onclick=$('#introCue').onclick=dismissIntro;
-addEventListener('wheel',e=>{ if(intro&&e.target!==canvas&&e.deltaY>4) dismissIntro(); },{passive:true});
-{ let ty=null; addEventListener('touchstart',e=>{ ty=intro?e.touches[0].clientY:null; },{passive:true}); addEventListener('touchmove',e=>{ if(intro&&ty!=null&&ty-e.touches[0].clientY>36) dismissIntro(); },{passive:true}); }
-addEventListener('keydown',e=>{ if(!intro||(e.target.closest&&e.target.closest('button,a,input'))) return; if(['ArrowDown','PageDown',' ','Enter'].includes(e.key)){ e.preventDefault(); dismissIntro(); } });
+/* welcome screen <-> start: scroll down to start planning, scroll up to come back */
+let introLock=0;
+const introReady=()=>{ const t=performance.now(); if(t<introLock) return false; introLock=t+850; return true; };
+function dismissIntro(){ if(!intro||!introReady()) return; intro=false; goStep(1); }
+function showIntro(){ if(intro||state.step!==1||!introReady()) return; intro=true; goStep(1); renderToday(todayISO()); renderMine(); }
+const atTop=el=>{ const p=el&&el.closest&&el.closest('.panel'); return !p||p.scrollTop<=0; };
+$('#introGo').onclick=$('#introCue').onclick=()=>{ introLock=0; dismissIntro(); };
+$('#backIntro').onclick=()=>{ introLock=0; showIntro(); };
+addEventListener('wheel',e=>{ if(e.target===canvas) return;
+  if(intro&&e.deltaY>4&&!(e.target.closest&&e.target.closest('#today'))) dismissIntro();
+  else if(!intro&&state.step===1&&e.deltaY<-4&&atTop(e.target)) showIntro(); },{passive:true});
+{ let ty=null; addEventListener('touchstart',e=>{ ty=state.step===1?e.touches[0].clientY:null; },{passive:true});
+  addEventListener('touchmove',e=>{ if(ty==null) return; const dy=ty-e.touches[0].clientY;
+    if(intro&&dy>36&&!(e.target.closest&&e.target.closest('#today'))){ ty=null; dismissIntro(); }
+    else if(!intro&&state.step===1&&dy<-60&&atTop(e.target)){ ty=null; showIntro(); } },{passive:true}); }
+addEventListener('keydown',e=>{ if(e.target.closest&&e.target.closest('button,a,input,textarea,select')) return;
+  if(intro&&['ArrowDown','PageDown',' ','Enter'].includes(e.key)){ e.preventDefault(); dismissIntro(); }
+  else if(!intro&&state.step===1&&['ArrowUp','PageUp'].includes(e.key)){ e.preventDefault(); showIntro(); } });
 $('#restart').onclick=()=>{ location.href='/?start=1'; };
 
 /* ---- How it works modal ---- */
@@ -1108,7 +1121,13 @@ function renderTicket(){
 
 /* ---- Plus paywall (Stripe Checkout, test mode) ---- */
 const TIER_NAME={plus:'Plus',family:'Family',crew:'Crew'};
-function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; b.textContent=TIER_NAME[state.tier]||'Plus'; } }
+function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; b.textContent=TIER_NAME[state.tier]||'Plus'; }
+  const nm=(state.profile&&state.profile.name)||(me()&&me().name)||''; $('#meName').textContent='Me'; $('#meBtn').title=nm?('Signed in on this browser as '+nm):'Me'; $('#meAv').textContent=nm?nm.charAt(0).toUpperCase():'Me'; }
+{ const mm=$('#meMenu'), mb=$('#meBtn');
+  mb.onclick=e=>{ e.stopPropagation(); const o=!mm.classList.contains('open'); mm.classList.toggle('open',o); mb.setAttribute('aria-expanded',o); };
+  addEventListener('click',e=>{ if(!mm.contains(e.target)){ mm.classList.remove('open'); mb.setAttribute('aria-expanded','false'); } });
+  mm.addEventListener('keydown',e=>{ if(e.key==='Escape'){ mm.classList.remove('open'); mb.focus(); } });
+  $$('#meMenu .medrop button').forEach(x=>x.addEventListener('click',()=>mm.classList.remove('open'))); }
 let payCycle='y', payWhy='';
 const CHANGE_TIER={key:'change',name:'Plan change',who:'Reopen this booked plan once',once:299,feat:['Change stops, time or people','Everyone votes again','No subscription']};
 const TIERS=[
@@ -1262,7 +1281,7 @@ function applyProfile(d){ const p=state.profile; if(!p||state.meId) return;
   if(p.color&&!state.people.some(x=>x.color===p.color)) d.color=p.color; }
 function renderMine(){
   const ps=state.myPlans||[], st=state.stats||{}, fr=st.friends||[];
-  $('#myPlansBtn').hidden=!ps.length;
+  $('#myPlansBtn').hidden=false; renderPlusBadge();
   const last=ps.find(x=>!x.sample)||ps[0], wb=$('#wback');
   if(last){ wb.hidden=false; wb.innerHTML=`<span>Welcome back${state.profile&&state.profile.name?', '+esc(state.profile.name):''}. Last plan: <b>${esc(last.name)}</b> · ${esc(prettyDate(last.date))} · ${STATUS[last.status]}</span><button class="textlink" type="button" id="wbOpen">Your plans →</button>`; $('#wbOpen').onclick=openMine; }
   else wb.hidden=true;
@@ -1292,7 +1311,7 @@ function remindIcs(){
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },800);
   toast(`Reminder for ${at.toLocaleDateString('en-US',{month:'short',day:'numeric'})} saved. Open the file to add it to your calendar.`);
 }
-$('#judgeLink').onclick=()=>$('#judgeModal').classList.add('show');
+
 
 /* ---- judge guide ---- */
 $('#judgeBtn').onclick=()=>$('#judgeModal').classList.add('show');

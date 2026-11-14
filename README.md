@@ -2,7 +2,7 @@
 
 **For the friend who always ends up organizing.** Everyone in the group adds their day (work, study, busy time), what they'd love to do and a private budget. GatherGlow finds the hours you all share and builds three plans across real New York City venues and events, priced with NYC tax and tip, inside everyone's budget. The group votes, the organizer locks a plan and books.
 
-- **Who pays:** the organizer, $4.99/month for Plus (unlimited plans + AI organizer). Everyone they invite uses it free.
+- **Who pays:** consumers only. Free: 1 group plan a month (up to 6 people, no AI). **Event Pass** $7.99 one-time (one plan, AI, up to 12). **Plus** $9.99/month or $79/year (one organizer). **Family** $19.99/month or $159/year (up to 6 in a household). **Crew** $24.99/month or $199/year (a friend group of up to 8; everyone can start plans and use AI). People you invite never pay.
 - **Market:** B2C, New York City, working adults 25–45.
 
 ## For judges (about 5 minutes)
@@ -13,7 +13,7 @@
 4. The first tab updates live. Click **Bring everyone together**, drag the planets in, and see three plans drawn on a 3D Manhattan.
 5. Vote and comment in both tabs. The plan's creator locks the top plan and books (simulated codes).
 6. **Come back:** open **My plans** in the header: your plans, the friends you plan with, outings booked and money kept under budget. Your planet is pre-filled in the next plan, and **Remind me in 4 weeks** downloads a calendar reminder.
-7. **Paywall:** click **Ask AI to organize** or create a second plan in the same month. Pay with Stripe test card `4242 4242 4242 4242`, any future date, any CVC. Plus unlocks, and the AI organizer runs on Claude.
+7. **Paywall:** click **Ask AI to organize**, create a second plan in the same month, or open **Pricing**. Choose Event Pass, Plus, Family or Crew. Pay with Stripe test card `4242 4242 4242 4242`, any future date, any CVC. Plus unlocks, and the AI organizer runs on Claude.
 
 ### Real data vs test data
 
@@ -33,7 +33,7 @@
 - **Identity without sign-up:** each browser gets a random token; the plan link is the invite. `?fresh=1` gives a tab its own identity (used by "Open as a second person").
 - **Sync:** every open tab polls the plan every few seconds, so joins, votes, comments, suggestions, locks and bookings show up for everyone.
 - **Retention:** each browser keeps a list of its plans and its last planet on the server (`idx:` and `prof:` keys). The home screen greets returning users with their last plan; a calendar reminder (.ics with an alert) nudges the next outing.
-- **Payments:** Stripe Checkout (subscription, $4.99/month) in test mode. The return page verifies the session server-side before unlocking Plus.
+- **Payments:** Stripe Checkout in test mode: subscriptions (monthly/yearly) and a one-time Event Pass. Family/Crew cover the first 5/7 people who join the subscriber's plans. The return page verifies the session server-side before unlocking Plus.
 
 ```
 public/            static site (Three.js 3D, map, planner UI)

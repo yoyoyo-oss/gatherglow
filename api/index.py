@@ -13,7 +13,7 @@ Routes (all JSON):
   POST /api/plans/<id>/lock                organizer locks a plan   {token, option}
   POST /api/plans/<id>/book                organizer books (simulated codes) {token}
   POST /api/plans/<id>/ai                  Plus: Claude organizes   {token, context}
-  POST /api/checkout                       Stripe Checkout (test mode) {token, planId}
+  POST /api/checkout                       Stripe Checkout (test mode) {token, plan, planId}
   GET  /api/checkout/verify?session_id=&token=  confirm payment and unlock Plus
 
 Identity: no sign-up. Each browser keeps a random token; a plan stores which member
@@ -30,9 +30,26 @@ import urllib.error
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
-PRICE_CENTS = 499          # GatherGlow Plus, per month
-PRICE_LABEL = "$4.99/month"
+# Consumer plans. Everyone pays as a person or household; nothing is sold to businesses.
+PLANS = {
+    "pass":     {"name": "GatherGlow Event Pass", "cents": 799,   "interval": None,    "tier": "pass",   "seats": 0,
+                 "desc": "One plan: AI organizer and up to 12 people, one-time"},
+    "plus_m":   {"name": "GatherGlow Plus",       "cents": 999,   "interval": "month", "tier": "plus",   "seats": 1,
+                 "desc": "Unlimited group plans and the AI organizer for one organizer"},
+    "plus_y":   {"name": "GatherGlow Plus (yearly)", "cents": 7900, "interval": "year", "tier": "plus",  "seats": 1,
+                 "desc": "Unlimited group plans and the AI organizer for one organizer"},
+    "family_m": {"name": "GatherGlow Family",     "cents": 1999,  "interval": "month", "tier": "family", "seats": 6,
+                 "desc": "Plus for up to 6 people in one household"},
+    "family_y": {"name": "GatherGlow Family (yearly)", "cents": 15900, "interval": "year", "tier": "family", "seats": 6,
+                 "desc": "Plus for up to 6 people in one household"},
+    "crew_m":   {"name": "GatherGlow Crew",       "cents": 2499,  "interval": "month", "tier": "crew",   "seats": 8,
+                 "desc": "Plus for a friend group of up to 8: anyone can start plans and use AI"},
+    "crew_y":   {"name": "GatherGlow Crew (yearly)", "cents": 19900, "interval": "year", "tier": "crew",  "seats": 8,
+                 "desc": "Plus for a friend group of up to 8: anyone can start plans and use AI"},
+}
+PRICE_LABEL = "from $9.99/month"
 FREE_PLANS_PER_MONTH = 1
+FREE_MAX_MEMBERS = 6
 MAX_MEMBERS = 12
 MAX_BODY = 200_000
 MODEL = "claude-opus-5-5"
@@ -127,9 +144,45 @@ def ent(token):
     return store.get("ent:" + token) or {}
 
 
-def is_plus(token):
+def own_tier(token):
+    """The tier this browser paid for itself (plus, family or crew), or None."""
     e = ent(token)
-    return bool(e.get("plus")) and e.get("until", 0) > time.time()
+    if e.get("plus") and e.get("until", 0) > time.time():
+        return e.get("tier", "plus")
+    return None
+
+
+def is_plus(token):
+    return own_tier(token) is not None
+
+
+def coverage(token):
+    """Plus through someone else's Family or Crew plan: you are among the first N people
+    in a plan created by that subscriber. Returns (tier, organizer name) or (None, None)."""
+    ids = (store.get("idx:" + token) or {}).get("ids", [])[:12]
+    found = store.get_many("plan:" + i for i in ids)
+    for pid in ids:
+        p = found.get("plan:" + pid)
+        if not p or p["organizerToken"] == token:
+            continue
+        e = ent(p["organizerToken"])
+        tier = own_tier(p["organizerToken"])
+        if tier in ("family", "crew"):
+            seats = int(e.get("seats", 0))
+            others = [m for m in p["members"] if m.get("token") != p["organizerToken"]]
+            if any(m.get("token") == token for m in others[:max(0, seats - 1)]):
+                org = member_for(p, p["organizerToken"])
+                return tier, (org or {}).get("name", "your organizer")
+    return None, None
+
+
+def has_plus(token):
+    return is_plus(token) or coverage(token)[0] is not None
+
+
+def plan_unlocked(p):
+    """A plan gets the paid features if it has an Event Pass or its organizer pays."""
+    return bool(p.get("pass")) or is_plus(p["organizerToken"])
 
 
 def load_plan(pid):
@@ -184,7 +237,9 @@ def public_plan(p, token):
         "members": members, "groupCap": min(budgets) if budgets else None,
         "votes": p.get("votes", {}), "comments": p.get("comments", {}), "suggested": p.get("suggested", []),
         "ai": p.get("ai"), "locked": p.get("locked"), "booked": p.get("booked"),
-        "organizerPlus": is_plus(p["organizerToken"]),
+        "organizerPlus": plan_unlocked(p), "pass": bool(p.get("pass")),
+        "organizerTier": own_tier(p["organizerToken"]),
+        "maxMembers": MAX_MEMBERS if plan_unlocked(p) else FREE_MAX_MEMBERS,
     }
 
 
@@ -273,7 +328,8 @@ def sample_member(s):
 def h_health(q, b):
     return {"store": store.kind, "stripe": bool(os.environ.get("STRIPE_SECRET_KEY")),
             "stripeMode": "test" if os.environ.get("STRIPE_SECRET_KEY", "").startswith("sk_test_") else ("live" if os.environ.get("STRIPE_SECRET_KEY") else None),
-            "ai": bool(os.environ.get("ANTHROPIC_API_KEY")), "price": PRICE_LABEL, "freePlansPerMonth": FREE_PLANS_PER_MONTH}
+            "ai": bool(os.environ.get("ANTHROPIC_API_KEY")), "price": PRICE_LABEL, "freePlansPerMonth": FREE_PLANS_PER_MONTH,
+            "plans": {k: {"cents": v["cents"], "interval": v["interval"], "tier": v["tier"], "seats": v["seats"]} for k, v in PLANS.items()}}
 
 
 def h_me(q, b):
@@ -298,7 +354,10 @@ def h_me(q, b):
                     friends.append(m["name"])
         plans.append({"id": pid, "name": p["name"], "date": p["date"], "status": status, "sample": p.get("sample", False),
                       "isOrganizer": p["organizerToken"] == t, "people": [m["name"] for m in p["members"]]})
-    return {"plus": is_plus(t), "plusUntil": ent(t).get("until"), "plansThisMonth": used,
+    tier = own_tier(t)
+    ctier, cby = (None, None) if tier else coverage(t)
+    return {"plus": bool(tier or ctier), "tier": tier or ctier, "coveredBy": cby, "seats": ent(t).get("seats") if tier else None,
+            "plusUntil": ent(t).get("until"), "cycle": ent(t).get("cycle"), "plansThisMonth": used,
             "freePlansPerMonth": FREE_PLANS_PER_MONTH, "price": PRICE_LABEL,
             "plans": plans, "stats": {"booked": booked, "friends": friends, "underBudget": round(saved, 2)},
             "profile": store.get("prof:" + t)}
@@ -309,8 +368,8 @@ def h_create(q, b):
     sample = bool(b.get("sample"))
     ukey = "usage:" + t + ":" + month_key()
     usage = store.get(ukey) or {"plans": 0}
-    if not sample and not is_plus(t) and usage["plans"] >= FREE_PLANS_PER_MONTH:
-        raise ApiError(402, "upgrade_required", "The free plan includes %d group plan a month. Upgrade to Plus for unlimited plans." % FREE_PLANS_PER_MONTH)
+    if not sample and usage["plans"] >= FREE_PLANS_PER_MONTH and not has_plus(t):
+        raise ApiError(402, "upgrade_required", "The free plan includes %d group plan a month. Plus, Family and Crew include unlimited plans." % FREE_PLANS_PER_MONTH)
     name = str(b.get("name", "")).strip()[:40] or "Our day out"
     date = str(b.get("date", ""))
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
@@ -340,6 +399,8 @@ def h_me_put(pid, q, b):
     mine = member_for(p, t)
     if not mine and len(p["members"]) >= MAX_MEMBERS:
         raise ApiError(409, "full", "This plan is full.")
+    if not mine and len(p["members"]) >= FREE_MAX_MEMBERS and not plan_unlocked(p):
+        raise ApiError(402, "group_full_free", "Free plans fit up to %d people. The organizer can add an Event Pass or upgrade for up to %d." % (FREE_MAX_MEMBERS, MAX_MEMBERS))
     m = clean_member(b.get("member"), existing_id=mine["id"] if mine else None)
     m["token"] = t
     if mine:
@@ -466,8 +527,8 @@ def h_ai(pid, q, b):
     p = load_plan(pid)
     if not member_for(p, t) and p["organizerToken"] != t:
         raise ApiError(403, "join_first", "Join the plan first.")
-    if not is_plus(p["organizerToken"]):
-        raise ApiError(402, "upgrade_required", "The AI organizer is part of Plus.")
+    if not (plan_unlocked(p) or has_plus(t)):
+        raise ApiError(402, "upgrade_required", "The AI organizer comes with an Event Pass, Plus, Family or Crew.")
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise ApiError(503, "ai_not_configured", "The AI organizer isn't configured on this deployment.")
     import anthropic  # imported lazily so the rest of the API works without it
@@ -524,21 +585,34 @@ def stripe(method, path, form=None):
 
 def h_checkout(q, b, origin):
     t = check_token(b.get("token"))
+    key = str(b.get("plan") or "plus_m")
+    plan = PLANS.get(key)
+    if not plan:
+        raise ApiError(400, "bad_plan", "Unknown plan.")
     pid = b.get("planId") if ID_RE.match(str(b.get("planId", ""))) else ""
+    if key == "pass":
+        if not pid:
+            raise ApiError(400, "pass_needs_plan", "An Event Pass belongs to one plan. Open the plan first.")
+        p = load_plan(pid)
+        if not member_for(p, t) and p["organizerToken"] != t:
+            raise ApiError(403, "join_first", "Join the plan first.")
     back = origin + ("/p/" + pid if pid else "/")
-    s = stripe("POST", "checkout/sessions", {
-        "mode": "subscription",
+    form = {
+        "mode": "payment" if plan["interval"] is None else "subscription",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": str(PRICE_CENTS),
-        "line_items[0][price_data][recurring][interval]": "month",
-        "line_items[0][price_data][product_data][name]": "GatherGlow Plus",
-        "line_items[0][price_data][product_data][description]": "Unlimited group plans, AI organizer, saved crews",
-        "metadata[token]": t,
-        "subscription_data[metadata][token]": t,
+        "line_items[0][price_data][unit_amount]": str(plan["cents"]),
+        "line_items[0][price_data][product_data][name]": plan["name"],
+        "line_items[0][price_data][product_data][description]": plan["desc"],
+        "metadata[token]": t, "metadata[plan]": key, "metadata[planId]": pid,
         "success_url": back + "?checkout=success&session_id={CHECKOUT_SESSION_ID}",
         "cancel_url": back + "?checkout=cancelled",
-    })
+    }
+    if plan["interval"]:
+        form["line_items[0][price_data][recurring][interval]"] = plan["interval"]
+        form["subscription_data[metadata][token]"] = t
+        form["subscription_data[metadata][plan]"] = key
+    s = stripe("POST", "checkout/sessions", form)
     return {"url": s["url"]}
 
 
@@ -550,11 +624,22 @@ def h_verify(q, b):
     s = stripe("GET", "checkout/sessions/" + sid)
     if s.get("metadata", {}).get("token") != t:
         raise ApiError(403, "wrong_session", "This checkout belongs to another browser.")
-    if s.get("status") != "complete":
+    if s.get("status") != "complete" or s.get("payment_status") not in ("paid", "no_payment_required"):
         return {"plus": False, "status": s.get("status")}
-    store.put("ent:" + t, {"plus": True, "until": time.time() + 31 * 86400, "session": sid,
+    md = s.get("metadata", {})
+    key = md.get("plan") or "plus_m"
+    plan = PLANS.get(key, PLANS["plus_m"])
+    if key == "pass":
+        p = load_plan(md.get("planId", ""))
+        if not p.get("pass"):
+            p["pass"] = {"session": sid, "at": int(time.time() * 1000), "livemode": bool(s.get("livemode"))}
+            save_plan(p)
+        return {"plus": False, "pass": True, "planId": p["id"], "plan": key}
+    days = 366 if plan["interval"] == "year" else 31
+    store.put("ent:" + t, {"plus": True, "tier": plan["tier"], "seats": plan["seats"], "plan": key, "cycle": plan["interval"],
+                           "until": time.time() + days * 86400, "session": sid,
                            "livemode": bool(s.get("livemode")), "since": int(time.time())})
-    return {"plus": True}
+    return {"plus": True, "tier": plan["tier"], "plan": key}
 
 
 # ------------------------------------------------------------------ routing

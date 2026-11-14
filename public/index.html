@@ -546,6 +546,27 @@ body.fit5 .today{bottom:10px}
 .vbig button.on{background:var(--accent);color:#fff}
 .vbig button.no{border-color:var(--line);color:var(--muted)}
 .vbig button.no.on{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* ---- pricing popup ---- */
+.cycle{display:inline-flex;gap:4px;margin-top:14px;padding:4px;border-radius:99px;background:var(--chip)}
+.cycle button{border:0;background:transparent;border-radius:99px;padding:7px 14px;font-weight:600;font-size:13px;cursor:pointer;color:var(--muted)}
+.cycle button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.cycle button span{color:var(--ok);font-size:11.5px;margin-left:3px}
+.tiers{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+@media (max-width:760px){.tiers{grid-template-columns:1fr 1fr}}
+@media (max-width:420px){.tiers{grid-template-columns:1fr}}
+.tier{position:relative;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:16px;padding:14px 13px 13px;background:#fff}
+.tier.best{border:2px solid var(--accent);padding:13px 12px 12px}
+.tier .flag{position:absolute;top:-10px;left:12px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px}
+.tier h3{font-family:var(--font-d);font-size:15px;margin:0}
+.tier .who{font-size:12px;color:var(--muted);margin-top:2px;min-height:32px}
+.tier .amt{font-family:var(--font-d);font-size:26px;font-weight:800;margin-top:8px;font-variant-numeric:tabular-nums}
+.tier .amt small{font-size:12.5px;font-weight:600;color:var(--muted)}
+.tier .pp{font-size:12px;color:var(--ok);font-weight:600;min-height:17px}
+.tier ul{list-style:none;padding:0;margin:10px 0 12px;font-size:12.5px;line-height:1.45;flex:1}
+.tier li{padding-left:16px;position:relative;margin-bottom:4px}
+.tier li:before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:700}
+.tier .btn{width:100%}
 </style>
 </head>
 <body>
@@ -581,7 +602,7 @@ body.fit5 .today{bottom:10px}
   <p class="lede">Bring your favorite people. We’ll take care of the little things: the hours you’re all free, places everyone will love, and a price that fits every budget.</p>
   <ol class="isteps"><li><i>1</i>Add your day</li><li><i>2</i>Pick what you’d love</li><li><i>3</i>Let AI plan the evening</li></ol>
   <div class="btnrow"><button class="btn primary" type="button" id="introGo">Start planning</button><span>or scroll down</span></div>
-  <p class="jline">No sign-up · Free for 1 group plan a month · <b>Plus $4.99/month</b> · <button class="textlink" type="button" id="judgeLink">Judging? 5-minute guide →</button></p>
+  <p class="jline">No sign-up · Free for 1 plan a month · <b>Plus $9.99 · Family $19.99 · Crew $24.99 /month</b> · <button class="textlink" type="button" id="judgeLink">Judging? 5-minute guide →</button></p>
   <div class="wback" id="wback" hidden></div>
 </section>
 <section class="today" id="today" aria-label="What's on today in New York"></section>
@@ -724,20 +745,17 @@ body.fit5 .today{bottom:10px}
   </div>
 </div>
 <div class="modal" id="wishModal" role="dialog" aria-modal="true" aria-label="Place details"><div class="mcard wm" id="wishCard"></div></div>
-<div class="modal" id="payModal" role="dialog" aria-modal="true" aria-label="GatherGlow Plus">
-  <div class="mcard" style="width:min(460px,100%)">
-    <p class="kicker acc">GatherGlow Plus</p>
-    <h2 style="margin-top:6px">$4.99<span style="font-size:16px;color:var(--muted);font-weight:600"> / month</span></h2>
-    <p class="lede" id="payReason" style="margin-top:8px"></p>
-    <div class="summary" style="margin-top:16px">
-      <div><span>Group plans</span><b>Free: 1 a month · Plus: unlimited</b></div>
-      <div><span>AI organizer (Claude)</span><b>Plus</b></div>
-      <div><span>Everyone you invite</span><b>Free, always</b></div>
-      <div><span>Cancel</span><b>Anytime</b></div>
-    </div>
+<div class="modal" id="payModal" role="dialog" aria-modal="true" aria-label="Pricing">
+  <div class="mcard" style="width:min(780px,100%);max-height:92vh;overflow:auto">
+    <p class="kicker acc">Pricing · paid by people, never by businesses</p>
+    <h2 style="margin-top:6px">Pick how your group plans</h2>
+    <p class="lede" id="payReason" style="margin-top:6px"></p>
+    <div class="cycle" id="payCycle" role="group" aria-label="Billing period"><button type="button" data-c="m" class="on">Monthly</button><button type="button" data-c="y">Yearly <span>save 34%</span></button></div>
+    <div class="tiers" id="payTiers"></div>
+    <p class="hint" style="margin-top:12px"><b>Free</b>: 1 group plan a month, up to 6 people, no AI. People you invite never pay. Cancel anytime.</p>
     <p class="hint" id="payTest" hidden>Stripe test mode: pay with card 4242 4242 4242 4242, any future date and any CVC. Nothing is charged.</p>
     <p class="hint" id="payOff" hidden>Payments aren’t configured on this deployment yet.</p>
-    <div class="mfoot"><button class="btn line sm" id="payClose" type="button">Not now</button><button class="btn primary sm" id="payGo" type="button">Upgrade</button></div>
+    <div class="mfoot"><span class="hint" id="payNow"></span><button class="btn line sm" id="payClose" type="button">Not now</button></div>
   </div>
 </div>
 <div class="modal" id="judgeModal" role="dialog" aria-modal="true" aria-label="Guide for judges">
@@ -751,7 +769,7 @@ body.fit5 .today{bottom:10px}
       <li><span>Back in the first tab the crew and shared free time <b>update live</b>. Click <b>Bring everyone together</b>, drag the planets in, and see 3 plans on the real Manhattan map.</span></li>
       <li><span><b>Vote and comment in both tabs.</b> The creator locks in the top plan and books (simulated).</span></li>
       <li><span><b>Come back</b>: open <b>My plans</b> in the header. Your plans, friends and outings are saved, your planet is pre-filled next time, and “Remind me in 4 weeks” adds a calendar reminder.</span></li>
-      <li><span><b>Paywall</b>: click “Ask AI to organize” or create a second plan. Pay with Stripe test card <b>4242 4242 4242 4242</b>, then the AI organizer runs on Claude.</span></li>
+      <li><span><b>Paywall</b>: click “Ask AI to organize”, create a second plan, or open <b>Pricing</b>. Pick an Event Pass, Plus, Family or Crew. Pay with Stripe test card <b>4242 4242 4242 4242</b>, then the AI organizer runs on Claude.</span></li>
     </ol>
     <h4>Real data vs test data</h4>
     <div class="why">

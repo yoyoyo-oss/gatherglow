@@ -170,7 +170,7 @@ let lastSig='', lastAiAt=0;
 function applyPlan(p){
   state.planId=p.id; state.planName=p.name; state.date=p.date; state.isOrganizer=p.isOrganizer; state.meId=p.meId;
   state.groupCap=p.groupCap; state.sample=p.sample; state.votes=p.votes||{}; state.comments=p.comments||{};
-  state.suggested=p.suggested||[]; state.organizerPlus=p.organizerPlus; state.version=p.version; state.booked=p.booked; state.aiRaw=p.ai;
+  state.suggested=p.suggested||[]; state.organizerPlus=p.organizerPlus; state.pass=!!p.pass; state.version=p.version; state.booked=p.booked; state.aiRaw=p.ai;
   state.people=p.members.map(m=>({...m}));
   ents.slice().forEach(e=>{ if(!state.people.find(x=>x.id===e.p.id)) removeEnt(e); });
   state.people.forEach(m=>{ const e=ents.find(x=>x.p.id===m.id);
@@ -198,7 +198,7 @@ async function poll(){
   catch(e){} finally{ pollBusy=false; }
 }
 setInterval(poll,3500);
-async function refreshMe(){ try{ const r=await api('GET','/me?token='+TOKEN); state.plus=r.plus; state.myPlans=r.plans||[]; state.stats=r.stats||null; state.profile=r.profile||null; renderPlusBadge(); renderMine(); }catch(e){} }
+async function refreshMe(){ try{ const r=await api('GET','/me?token='+TOKEN); state.plus=r.plus; state.tier=r.tier||null; state.coveredBy=r.coveredBy||null; state.myPlans=r.plans||[]; state.stats=r.stats||null; state.profile=r.profile||null; renderPlusBadge(); renderMine(); }catch(e){} }
 
 /* ================= three ================= */
 const canvas=$('#gl');
@@ -960,7 +960,7 @@ function renderPlanList(){
   const c=ctxFor(),w=winnerIdx(),ai=state.ai;
   const aiBox=(ai&&ai.status==='thinking'
     ?`<div class="aibox"><h3>Organizing your day…</h3><p>Claude is fitting everyone’s wishes into the shared hours under the group budget. This usually takes 20 to 60 seconds.</p></div>`
-    :`<div class="aibox"><h3>Let AI organize it</h3><p>Uses everyone’s timetable, wishes and the group’s lowest budget. Never individual budgets. Every suggestion is checked before it appears.</p>${ai&&ai.status==='done'&&ai.tips&&ai.tips.length?`<ul>${ai.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}${ai&&ai.status==='error'?`<p style="color:var(--over)">${esc(ai.msg)}</p>`:''}<div class="btnrow" style="margin-top:10px"><button class="btn primary sm" id="aiBtn" type="button">${ai&&ai.status==='done'?'Ask AI again':'Ask AI to organize'}${state.organizerPlus?'':' · Plus'}</button></div></div>`);
+    :`<div class="aibox"><h3>Let AI organize it</h3><p>Uses everyone’s timetable, wishes and the group’s lowest budget. Never individual budgets. Every suggestion is checked before it appears.</p>${ai&&ai.status==='done'&&ai.tips&&ai.tips.length?`<ul>${ai.tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}${ai&&ai.status==='error'?`<p style="color:var(--over)">${esc(ai.msg)}</p>`:''}<div class="btnrow" style="margin-top:10px"><button class="btn primary sm" id="aiBtn" type="button">${ai&&ai.status==='done'?'Ask AI again':'Ask AI to organize'}${state.organizerPlus||state.plus?'':' · Plus'}</button></div></div>`);
   $('#plansPanel').innerHTML=`
     <p class="kicker">${esc(planMeta())}</p>
     <h2>${state.options.length} ways to spend the day</h2>
@@ -1092,18 +1092,45 @@ function renderTicket(){
 }
 
 /* ---- Plus paywall (Stripe Checkout, test mode) ---- */
-function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; } }
+const TIER_NAME={plus:'Plus',family:'Family',crew:'Crew'};
+function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; b.textContent=TIER_NAME[state.tier]||'Plus'; } }
+let payCycle='y';
+const TIERS=[
+  {key:'pass',name:'Event Pass',who:'One big occasion: a birthday, a reunion, a visit',once:799,per:null,feat:['This plan only, no subscription','AI organizer for this plan','Up to 12 people']},
+  {key:'plus',name:'Plus',who:'For the one friend who always organizes',m:999,y:7900,seats:1,feat:['Unlimited group plans','AI organizer on every plan','Up to 12 people per plan']},
+  {key:'family',name:'Family',who:'One household, up to 6 people',m:1999,y:15900,seats:6,feat:['Everything in Plus','Plus for up to 6 people','Anyone in the family can plan']},
+  {key:'crew',name:'Crew',who:'Your friend group, up to 8 people',m:2499,y:19900,seats:8,best:true,feat:['Everything in Plus','Plus for up to 8 friends','Anyone in the crew starts plans and uses AI']},
+];
+const usd=c=>'$'+(c/100).toFixed(c%100?2:0);
+function renderTiers(){
+  const h=state.health||{}, ok=!!h.stripe;
+  $$('#payCycle button').forEach(b=>b.classList.toggle('on',b.dataset.c===payCycle));
+  $('#payTiers').innerHTML=TIERS.map(t=>{
+    const yearly=payCycle==='y', cents=t.once||(yearly?t.y:t.m), unit=t.once?'one-time':yearly?'/year':'/month';
+    const perMonth=t.once?null:(yearly?t.y/12:t.m), pp=t.seats>1?`${usd(Math.round(perMonth/t.seats))} per person a month`:(yearly&&!t.once?`${usd(Math.round(perMonth))} a month, billed yearly`:'');
+    const mine=!t.once&&state.tier===t.key, passOn=t.once&&state.pass;
+    const dis=!ok||mine||passOn||(t.once&&!state.planId);
+    const label=mine?'Your plan':passOn?'Added to this plan':t.once&&!state.planId?'Open a plan first':t.once?'Buy for this plan':`Choose ${t.name}`;
+    return `<div class="tier ${t.best?'best':''}">${t.best?'<span class="flag">Best for groups</span>':''}<h3>${t.name}</h3><div class="who">${t.who}</div>
+      <div class="amt">${usd(cents)}<small> ${unit}</small></div><div class="pp">${pp}</div>
+      <ul>${t.feat.map(f=>`<li>${f}</li>`).join('')}</ul>
+      <button type="button" class="btn ${t.best?'primary':'dark'} sm" data-buy="${t.once?'pass':t.key+'_'+payCycle}" ${dis?'disabled':''}>${label}</button></div>`;
+  }).join('');
+  $$('#payTiers [data-buy]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='Opening checkout…';
+    try{ const r=await api('POST','/checkout',{token:TOKEN,planId:state.planId,plan:b.dataset.buy}); location.href=r.url; }
+    catch(e){ toast(e.message); renderTiers(); } });
+  $('#payNow').textContent=state.tier?(state.coveredBy?`You have ${TIER_NAME[state.tier]} through ${state.coveredBy}.`:`You have ${TIER_NAME[state.tier]}.`):'';
+}
+$$('#payCycle button').forEach(b=>b.onclick=()=>{ payCycle=b.dataset.c; renderTiers(); });
 function openPay(reason,msg){
   const h=state.health||{};
-  $('#payReason').textContent=msg||(reason==='ai'?'The AI organizer is part of Plus.':reason==='plans'?'The free plan includes 1 group plan a month.':'Everything your group needs, for the person who plans.');
+  $('#payReason').textContent=msg||(reason==='ai'?'The AI organizer comes with an Event Pass, Plus, Family or Crew.':reason==='plans'?'The free plan includes 1 group plan a month.':'Organizers and their groups pay; businesses never do. Prices in US dollars.');
   $('#payTest').hidden=h.stripeMode!=='test'; $('#payOff').hidden=!!h.stripe;
-  $('#payGo').disabled=!h.stripe||state.plus; $('#payGo').textContent=state.plus?'You have Plus':`Upgrade · ${h.price||'$4.99/month'}`;
-  $('#payModal').classList.add('show');
+  renderTiers(); $('#payModal').classList.add('show');
 }
 $('#payClose').onclick=()=>$('#payModal').classList.remove('show');
 $('#payModal').addEventListener('click',e=>{ if(e.target.id==='payModal') $('#payModal').classList.remove('show'); });
 $('#pricingBtn').onclick=()=>openPay('pricing');
-$('#payGo').onclick=async()=>{ $('#payGo').disabled=true; try{ const r=await api('POST','/checkout',{token:TOKEN,planId:state.planId}); location.href=r.url; }catch(e){ toast(e.message); $('#payGo').disabled=false; } };
 
 /* ---- retention: my plans, saved planet, reminder ---- */
 state.myPlans=[]; state.stats=null; state.profile=null;
@@ -1234,7 +1261,7 @@ function tick(){
   if(state.health.store==='none') toast('Storage isn’t configured on this deployment yet. See the README.');
   const q=new URLSearchParams(location.search);
   if(q.get('checkout')==='success'&&q.get('session_id')){
-    try{ const r=await api('GET','/checkout/verify?token='+TOKEN+'&session_id='+encodeURIComponent(q.get('session_id'))); if(r.plus) toast('Plus is unlocked (Stripe test mode). Thank you!'); }catch(e){ toast(e.message); }
+    try{ const r=await api('GET','/checkout/verify?token='+TOKEN+'&session_id='+encodeURIComponent(q.get('session_id'))); if(r.pass) toast('Event Pass added: this plan now has the AI organizer and room for 12 (Stripe test mode).'); else if(r.plus) toast(`${TIER_NAME[r.tier]||'Plus'} is unlocked (Stripe test mode). Thank you!`); }catch(e){ toast(e.message); }
   } else if(q.get('checkout')==='cancelled') toast('Checkout cancelled. Nothing was charged.');
   await refreshMe();
   const m=location.pathname.match(/^\/p\/([a-z0-9]+)/);

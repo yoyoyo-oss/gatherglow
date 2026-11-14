@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/p/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/js/manhattan.js", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] }
+  ]
+}

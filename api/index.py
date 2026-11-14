@@ -15,7 +15,7 @@ Routes (all JSON):
   POST /api/plans/<id>/ai                  Plus: Claude organizes   {token, context}
   POST /api/checkout                       Stripe Checkout (test mode) {token, plan, planId}
   GET  /api/checkout/verify?session_id=&token=  confirm payment and unlock Plus
-  GET  /api/live?date=                     live NYC events for a day (Ticketmaster Discovery API, cached 30 min)
+  GET  /api/live?date=                     live NYC events for a day: NYC Parks (no key), SeatGeek, Ticketmaster (cached 30 min)
   GET  /api/venues/stats                   GatherGlow ratings and "most wished" rank for every place
   GET  /api/venues/<id>?name=&address=     reviews for one place (+ Google rating when a key is set)
   POST /api/reviews                        rate a place you went to   {token, planId, venueId, stars, text}
@@ -248,14 +248,14 @@ def bump_wishes(before, after):
     store.put("vstats", st)
 
 
-EXT_FIELDS = {"name": 120, "category": 40, "neighborhood": 80, "address": 160, "booking": 60, "price_note": 200, "image": 400, "source_url": 400, "status": 20}
+EXT_FIELDS = {"name": 120, "category": 40, "neighborhood": 80, "address": 160, "booking": 60, "price_note": 200, "image": 400, "source_url": 400, "status": 20, "provider": 20}
 
 
 def clean_ext_venue(v):
     """A live event (Ticketmaster) snapshot stored with a plan, so everyone sees the same stop."""
-    if not isinstance(v, dict) or not re.match(r"^tm-[a-z0-9]{2,37}$", str(v.get("id", ""))):
+    if not isinstance(v, dict) or not re.match(r"^(tm|sg|pk)-[a-z0-9]{2,37}$", str(v.get("id", ""))):
         return None
-    out = {"id": v["id"], "type": "activity", "live": True}
+    out = {"id": v["id"], "type": "activity", "live": True, "free": bool(v.get("free"))}
     for k, n in EXT_FIELDS.items():
         out[k] = str(v.get(k, ""))[:n]
     for k in ("image", "source_url"):
@@ -387,7 +387,8 @@ def h_health(q, b):
             "stripeMode": "test" if os.environ.get("STRIPE_SECRET_KEY", "").startswith("sk_test_") else ("live" if os.environ.get("STRIPE_SECRET_KEY") else None),
             "ai": bool(os.environ.get("ANTHROPIC_API_KEY")), "price": PRICE_LABEL, "freePlansPerMonth": FREE_PLANS_PER_MONTH,
             "plans": {k: {"cents": v["cents"], "interval": v["interval"], "tier": v["tier"], "seats": v["seats"]} for k, v in PLANS.items()},
-            "liveEvents": bool(os.environ.get("TICKETMASTER_API_KEY")), "googleRatings": bool(os.environ.get("GOOGLE_PLACES_API_KEY"))}
+            "liveEvents": True, "liveSources": ["NYC Parks"] + (["SeatGeek"] if os.environ.get("SEATGEEK_CLIENT_ID") else []) + (["Ticketmaster"] if os.environ.get("TICKETMASTER_API_KEY") else []),
+            "googleRatings": bool(os.environ.get("GOOGLE_PLACES_API_KEY"))}
 
 
 def h_me(q, b):
@@ -701,14 +702,25 @@ def h_review(q, b):
     return {"ok": True, "avg": round(e["rs"] / e["rc"], 2), "count": e["rc"]}
 
 
-# ---- live events: Ticketmaster Discovery API
+# ---- live events: NYC Parks (official feed, no key), SeatGeek and Ticketmaster (keys)
+def http_json(url, timeout=10):
+    req = urllib.request.Request(url, headers={"User-Agent": "GatherGlow/1.0", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
 def tm_get(path, params):
     key = os.environ.get("TICKETMASTER_API_KEY")
     if not key:
         return None
-    params = dict(params, apikey=key)
-    with urllib.request.urlopen("https://app.ticketmaster.com/discovery/v2/" + path + "?" + urllib.parse.urlencode(params), timeout=10) as r:
-        return json.loads(r.read())
+    return http_json("https://app.ticketmaster.com/discovery/v2/" + path + "?" + urllib.parse.urlencode(dict(params, apikey=key)))
+
+
+def sg_get(path, params):
+    cid = os.environ.get("SEATGEEK_CLIENT_ID")
+    if not cid:
+        return None
+    return http_json("https://api.seatgeek.com/2/" + path + "?" + urllib.parse.urlencode(dict(params, client_id=cid)))
 
 
 def tm_norm(e):
@@ -730,81 +742,217 @@ def tm_norm(e):
         return None
     t = (st.get("localTime") or "")[:5]
     pmin, pmax = pr.get("min"), pr.get("max")
-    return {"id": vid, "tmId": tid, "type": "activity", "live": True, "name": str(e.get("name", ""))[:120],
+    return {"id": vid, "rawId": tid, "provider": "Ticketmaster", "type": "activity", "live": True, "free": False, "name": str(e.get("name", ""))[:120],
             "category": (genre if genre and genre != "Undefined" else seg or "Live event")[:40], "tags": tags,
             "neighborhood": str(ven.get("name", ""))[:80],
             "address": ", ".join(x for x in [ven.get("name"), (ven.get("address") or {}).get("line1"), (ven.get("city") or {}).get("name")] if x)[:160],
-            "lat": lat, "lng": lng, "price_pp": float(pmin) if pmin else 0.0, "price_max": float(pmax) if pmax else None,
-            "price_basis": "listed", "price_note": ("Ticketmaster price range $%g–$%g" % (pmin, pmax or pmin)) if pmin else "Price shown on Ticketmaster",
+            "lat": lat, "lng": lng, "price_pp": float(pmin) if pmin else 0.0,
+            "price_basis": "listed", "price_note": ("Ticketmaster price range $%g-$%g" % (pmin, pmax or pmin)) if pmin else "Price shown on Ticketmaster",
             "dates": [st.get("localDate")] if st.get("localDate") else [], "starts": [t] if t else [], "duration_min": 150,
             "status": str(((e.get("dates") or {}).get("status") or {}).get("code", "onsale"))[:20],
             "booking": "Ticketmaster", "source_url": e.get("url", ""), "image": img}
+
+
+SG_TAGS = {"concert": ["music", "nightlife"], "music_festival": ["music"], "comedy": ["comedy"], "theater": ["shows"], "broadway_tickets_national": ["shows"],
+           "classical": ["music"], "dance_performance_tour": ["shows"], "family": ["shows"]}
+
+
+def sg_norm(e):
+    sid = str(e.get("id", ""))
+    ven = e.get("venue") or {}
+    loc = ven.get("location") or {}
+    stats = e.get("stats") or {}
+    dt = str(e.get("datetime_local") or "")
+    perf = (e.get("performers") or [{}])[0]
+    try:
+        lat, lng = float(loc.get("lat")), float(loc.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    low, high = stats.get("lowest_price"), stats.get("highest_price")
+    etype = str(e.get("type", ""))
+    return {"id": "sg-" + re.sub(r"[^0-9]", "", sid)[:37], "rawId": sid, "provider": "SeatGeek", "type": "activity", "live": True, "free": False,
+            "name": str(e.get("short_title") or e.get("title") or "")[:120],
+            "category": etype.replace("_", " ").title()[:40] or "Live event", "tags": SG_TAGS.get(etype, ["shows"]),
+            "neighborhood": str(ven.get("name", ""))[:80],
+            "address": ", ".join(x for x in [ven.get("name"), ven.get("address"), ven.get("city")] if x)[:160],
+            "lat": lat, "lng": lng, "price_pp": float(low) if low else 0.0, "price_basis": "listed",
+            "price_note": ("SeatGeek listings from $%g%s" % (low, (" to $%g" % high) if high else "")) if low else "Price shown on SeatGeek",
+            "dates": [dt[:10]] if dt else [], "starts": [] if e.get("time_tbd") else ([dt[11:16]] if len(dt) >= 16 else []), "duration_min": 150,
+            "status": str(e.get("status") or "normal")[:20].replace("normal", "onsale"),
+            "booking": "SeatGeek", "source_url": e.get("url", ""), "image": (perf.get("image") or "").replace("http://", "https://")}
+
+
+PARKS_FEED = "https://www.nycgovparks.org/xml/events_300_rss.xml"
+PARKS_KEEP = {"Art": "art", "Arts & Crafts": "art", "Film": "art", "Theater": "art", "History": "art", "Tours": "outdoors",
+              "Nature": "outdoors", "Wildlife": "outdoors", "Birding": "outdoors", "Hiking": "outdoors", "Waterfront": "outdoors",
+              "Walking": "outdoors", "Gardening": "outdoors", "Festivals": "holiday", "Holiday": "holiday", "Concerts": "music",
+              "Music": "music", "Dance": "shows", "Food": "free"}
+PARKS_SKIP = {"Exercise Classes", "Shape Up NYC", "Volunteer", "Recreation Center Programming", "Dance Classes", "Yoga & Pilates Classes", "Best for Kids", "Education"}
+
+
+def parks_feed():
+    """The official NYC Parks events feed (next 14 days), cached 30 minutes."""
+    c = store.get("parksfeed")
+    if c and c.get("at", 0) > time.time() - 1800:
+        return c["items"]
+    req = urllib.request.Request(PARKS_FEED, headers={"User-Agent": "GatherGlow/1.0"})
+    with urllib.request.urlopen(req, timeout=12) as r:
+        xml = r.read().decode("iso-8859-1", "replace")
+    items = []
+    for chunk in xml.split("<item>")[1:]:
+        def tag(name):
+            mm = re.search(r"<%s>(.*?)</%s>" % (re.escape(name), re.escape(name)), chunk, re.S)
+            v = (mm.group(1) if mm else "").strip()
+            v = re.sub(r"^<!\[CDATA\[(.*)\]\]>$", r"\1", v, flags=re.S)
+            return v
+        items.append({k: tag(t) for k, t in [("title", "title"), ("guid", "guid"), ("link", "link"), ("desc", "description"),
+                                              ("reg", "registration_url"), ("park", "event:parknames"), ("start", "event:startdate"),
+                                              ("end", "event:enddate"), ("t0", "event:starttime"), ("t1", "event:endtime"),
+                                              ("loc", "event:location"), ("cats", "event:categories"), ("xy", "event:coordinates"), ("img", "event:image")]})
+    store.put("parksfeed", {"at": time.time(), "items": items})
+    return items
+
+
+def to24(t):
+    mm = re.match(r"^(\d{1,2}):(\d{2})\s*([ap])\.?m", t.strip().lower())
+    if not mm:
+        return None
+    h = int(mm.group(1)) % 12 + (12 if mm.group(3) == "p" else 0)
+    return "%02d:%s" % (h, mm.group(2))
+
+
+def parks_norm(it, date):
+    if not (it["start"] <= date <= (it["end"] or it["start"])):
+        return None
+    cats = [x.strip() for x in it["cats"].split("|") if x.strip()]
+    keep = [x for x in cats if x in PARKS_KEEP]
+    if not keep or (set(cats) & PARKS_SKIP and not set(keep) - {"Dance"}):
+        return None
+    t0, t1 = to24(it["t0"]), to24(it["t1"])
+    try:
+        lat, lng = [float(x) for x in it["xy"].split(",")[:2]]
+    except (ValueError, TypeError):
+        return None
+    if not t0:
+        return None
+    dur = 90
+    if t1:
+        dur = max(45, min(240, (int(t1[:2]) * 60 + int(t1[3:])) - (int(t0[:2]) * 60 + int(t0[3:]))))
+    img = it["img"]
+    if img and img.startswith("/"):
+        img = "https://www.nycgovparks.org" + img
+    img = img.replace("http://", "https://")
+    desc = re.sub(r"<[^>]+>", " ", it["desc"]); desc = re.sub(r"&#8217;", "'", desc); desc = re.sub(r"&[a-z#0-9]+;", " ", desc)
+    desc = re.sub(r"\s+", " ", desc).strip()
+    link = (it["reg"] or it["link"]).replace("http://", "https://")
+    tags = sorted({PARKS_KEEP[x] for x in keep} | {"free"})
+    return {"id": "pk-" + re.sub(r"[^0-9]", "", it["guid"])[:30], "rawId": it["guid"], "provider": "NYC Parks", "type": "activity", "live": True, "free": True,
+            "name": it["title"][:120], "category": keep[0][:40], "tags": [x for x in tags if x in VIBES][:3],
+            "neighborhood": it["park"][:80], "address": (it["loc"] or it["park"])[:160], "lat": lat, "lng": lng,
+            "price_pp": 0.0, "price_basis": "listed", "price_note": "Free · listed by NYC Parks. " + desc[:150],
+            "dates": [date], "starts": [t0], "duration_min": dur, "status": "onsale", "booking": "Free · NYC Parks",
+            "source_url": link, "image": img}
 
 
 def h_live(q, b):
     date = str(q.get("date", ""))
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
         raise ApiError(400, "bad_date", "Pick a date.")
-    if not os.environ.get("TICKETMASTER_API_KEY"):
-        return {"configured": False, "events": []}
-    ck = "live:" + date
+    ck = "live2:" + date
     c = store.get(ck)
     if c and c.get("at", 0) > time.time() - 1800:
-        return {"configured": True, "events": c["events"], "fetchedAt": c["at"], "source": "Ticketmaster Discovery API"}
+        return {"configured": True, "events": c["events"], "sources": c.get("sources", []), "fetchedAt": c["at"]}
+    events, sources = [], []
+    if os.environ.get("TICKETMASTER_API_KEY"):
+        try:
+            j = tm_get("events.json", {"city": "New York", "countryCode": "US", "size": 40, "sort": "relevance,desc",
+                                       "localStartDateTime": date + "T00:00:00," + date + "T23:59:59"}) or {}
+            evs = [x for x in (tm_norm(e) for e in ((j.get("_embedded") or {}).get("events") or [])) if x and x["starts"]]
+            events += evs[:20]; sources.append("Ticketmaster")
+        except Exception:
+            pass
+    if os.environ.get("SEATGEEK_CLIENT_ID"):
+        try:
+            j = sg_get("events", {"venue.city": "New York", "per_page": 40, "sort": "score.desc",
+                                  "datetime_local.gte": date + "T00:00:00", "datetime_local.lte": date + "T23:59:59"}) or {}
+            evs = [x for x in (sg_norm(e) for e in j.get("events") or []) if x and x["starts"]]
+            events += evs[:20]; sources.append("SeatGeek")
+        except Exception:
+            pass
     try:
-        j = tm_get("events.json", {"city": "New York", "countryCode": "US", "size": 40, "sort": "relevance,desc",
-                                   "localStartDateTime": date + "T00:00:00," + date + "T23:59:59"}) or {}
+        evs = [x for x in (parks_norm(it, date) for it in parks_feed()) if x]
+        withimg = sorted(evs, key=lambda e: (not e["image"], e["starts"][0]))
+        events += withimg[:24]; sources.append("NYC Parks")
     except Exception:
-        return {"configured": True, "events": (c or {}).get("events", []), "stale": True}
-    evs = [x for x in (tm_norm(e) for e in ((j.get("_embedded") or {}).get("events") or [])) if x and x["starts"]]
+        pass
     seen, uniq = set(), []
-    for e in evs:
-        k = (e["name"], e["starts"][0])
+    for e in events:
+        k = (e["name"].lower(), e["starts"][0])
         if k not in seen:
             seen.add(k); uniq.append(e)
-    store.put(ck, {"at": time.time(), "events": uniq[:24]})
-    tmmap = store.get("tmmap") or {}
-    tmmap.update({e["id"]: e["tmId"] for e in uniq})
-    if len(tmmap) > 4000:
-        tmmap = dict(list(tmmap.items())[-3000:])
-    store.put("tmmap", tmmap)
-    return {"configured": True, "events": uniq[:24], "fetchedAt": time.time(), "source": "Ticketmaster Discovery API"}
+    store.put(ck, {"at": time.time(), "events": uniq, "sources": sources})
+    lm = store.get("livemap") or {}
+    lm.update({e["id"]: [e["provider"], e["rawId"]] for e in uniq})
+    if len(lm) > 5000:
+        lm = dict(list(lm.items())[-4000:])
+    store.put("livemap", lm)
+    return {"configured": True, "events": uniq, "sources": sources, "fetchedAt": time.time()}
+
+
+def live_lookup(vid, date):
+    """Fetch the current version of one live event from its source."""
+    prov, raw = ((store.get("livemap") or {}).get(vid) or [None, None])
+    if not prov:
+        old = (store.get("tmmap") or {}).get(vid)
+        prov, raw = ("Ticketmaster", old) if old else (None, None)
+    if prov == "Ticketmaster":
+        return tm_norm(tm_get("events/" + urllib.parse.quote(raw) + ".json", {}) or {}) if os.environ.get("TICKETMASTER_API_KEY") else None
+    if prov == "SeatGeek":
+        return sg_norm(sg_get("events/" + urllib.parse.quote(raw), {}) or {}) if os.environ.get("SEATGEEK_CLIENT_ID") else None
+    if prov == "NYC Parks":
+        for it in parks_feed():
+            if it["guid"] == raw:
+                return parks_norm(it, date) or {"status": "unlisted"}
+        return {"status": "unlisted"}
+    return None
 
 
 def refresh_live(p):
     """Re-check live events in a locked plan (at most every 15 minutes). Adds a note when the price,
-    time, date or status changed on Ticketmaster. Returns True when the plan changed."""
+    time, date or status changed at the source. Returns True when the plan changed."""
     lk = p.get("locked")
-    if not lk or not os.environ.get("TICKETMASTER_API_KEY"):
+    if not lk:
         return False
-    ids = [s["id"] for s in lk["stops"] if s["id"].startswith("tm-")]
+    ids = [s["id"] for s in lk["stops"] if re.match(r"^(tm|sg|pk)-", s["id"])]
     if not ids or p.get("liveCheckedAt", 0) > time.time() - 900:
         return False
     p["liveCheckedAt"] = time.time()
-    tmmap = store.get("tmmap") or {}
     live = p.setdefault("live", {})
+    ext = p.setdefault("extVenues", {})
     for vid in ids:
-        tid = tmmap.get(vid)
-        if not tid:
-            continue
         try:
-            n = tm_norm(tm_get("events/" + urllib.parse.quote(tid) + ".json", {}) or {})
+            n = live_lookup(vid, p["date"])
         except Exception:
             continue
         if not n:
             continue
         old = live.get(vid) or {}
-        nm = n["name"]
-        if old.get("price") is not None and n["price_pp"] and abs(n["price_pp"] - old["price"]) >= 0.5:
-            add_note(p, "price", "%s: price changed from $%g to $%g on Ticketmaster." % (nm, old["price"], n["price_pp"]))
+        nm = (ext.get(vid) or {}).get("name") or n.get("name") or "An event"
+        src = (ext.get(vid) or {}).get("provider") or n.get("provider") or "the source"
+        if n.get("status") == "unlisted":
+            if old.get("status") != "unlisted":
+                add_note(p, "status", "%s is no longer listed by %s. It may be cancelled; check before you go." % (nm, src))
+                live[vid] = dict(old, status="unlisted")
+            continue
+        if old.get("price") is not None and n.get("price_pp") and abs(n["price_pp"] - old["price"]) >= 0.5:
+            add_note(p, "price", "%s: price changed from $%g to $%g on %s." % (nm, old["price"], n["price_pp"], src))
         if old.get("status") and n["status"] != old["status"]:
-            add_note(p, "status", "%s is now %s on Ticketmaster." % (nm, n["status"].upper()))
+            add_note(p, "status", "%s is now %s on %s." % (nm, n["status"].upper(), src))
         if old.get("starts") and n["starts"] and n["starts"] != old["starts"]:
             add_note(p, "time", "%s: start time changed to %s." % (nm, n["starts"][0]))
         if old.get("dates") and n["dates"] and n["dates"] != old["dates"]:
             add_note(p, "time", "%s moved to %s." % (nm, n["dates"][0]))
         live[vid] = {"price": n["price_pp"] or old.get("price"), "status": n["status"], "starts": n["starts"], "dates": n["dates"]}
-        ext = p.setdefault("extVenues", {})
         if vid in ext:
             ext[vid].update({"price_pp": n["price_pp"] or ext[vid]["price_pp"], "status": n["status"], "price_note": n["price_note"]})
     return True

@@ -27,8 +27,12 @@
 
 ## Live data, ratings and changes
 
-- **Live events (Ticketmaster Discovery API):** set `TICKETMASTER_API_KEY` (free at developer.ticketmaster.com). The What's on strip and the wishes step then show today's NYC events with the official image, price range, start time, status and a **Buy tickets** link. Results are cached for 30 minutes.
-- **Price and delay alerts:** when a locked plan contains a live event, the server re-checks it on Ticketmaster at most every 15 minutes while anyone has the plan open. Price, time, date or status changes (postponed, rescheduled, cancelled) become alerts that every member sees (Alerts button, pop-up, and a browser notification if they turned it on).
+- **Live events, three sources:**
+  - **NYC Parks** (official public-events feed, no key needed, next 14 days): free tours, art, nature, history, concerts in parks, with times, coordinates, official photos and RSVP links. Always on.
+  - **SeatGeek** (`SEATGEEK_CLIENT_ID`, free at seatgeek.com/account/develop): ticketed concerts, comedy and theater with lowest price, image and a Buy tickets link.
+  - **Ticketmaster** (`TICKETMASTER_API_KEY`, developer.ticketmaster.com): same, from Ticketmaster.
+  Results are cached for 30 minutes. Free events get their own "Free events that day" group; paid events join Concerts & shows.
+- **Price and delay alerts:** when a locked plan contains a live event, the server re-checks it at the source at most every 15 minutes while anyone has the plan open. Price, time, date or status changes (postponed, rescheduled, cancelled, or no longer listed by NYC Parks) become alerts that every member sees (Alerts button, pop-up, and a browser notification if they turned it on).
 - **Ratings and reviews:** people rate each stop after a booked outing; cards show the GatherGlow average and a "most wished" rank, both computed from real usage. Set `GOOGLE_PLACES_API_KEY` (Places API, New) to also show Google star ratings and three recent Google reviews (cached 7 days). Nothing is shown when there is no data.
 - **Real photos:** `public/js/photos.js` holds Wikimedia Commons photos for every venue, credited in the detail view.
 - **Changing a booked plan:** members can say "I can't make it" or edit their times (the group gets an alert). The organizer can reopen the plan: free with Plus/Family/Crew, one free change with an Event Pass, otherwise $2.99 per change (Stripe).

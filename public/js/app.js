@@ -44,7 +44,7 @@ const monthOf=d=>Number(d.slice(5,7));
 const toMin=s=>{ const [h,m]=s.split(':').map(Number); return h*60+m; };
 function ctxFor(){ const ms=state.people,mine=me(); const cap=state.groupCap!=null?state.groupCap:(mine&&mine.budget?Number(mine.budget):Infinity); return {date:state.date,size:Math.max(ms.length,1),u21:ms.some(m=>m.u21),veg:ms.some(m=>m.veg),cap}; }
 function isAvailable(v,c){
-  if(v.live&&(!v.price_pp||['cancelled','offsale','postponed'].includes(v.status))) return false;
+  if(v.live&&((!v.price_pp&&!v.free)||['cancelled','offsale','postponed','unlisted'].includes(v.status))) return false;
   if(v.seasonal_months&&!v.seasonal_months.includes(monthOf(c.date))) return false;
   if(v.dates&&!v.dates.includes(c.date)) return false;
   if(v.date_range&&(c.date<v.date_range[0]||c.date>v.date_range[1])) return false;
@@ -452,7 +452,7 @@ const shortPrice=p=>{ if(!p||/not posted/i.test(p)||/^varies$/i.test(p)) return 
 function renderToday(dArg){
   const el=$('#today'); if(!el) return;
   const d=dArg||todayISO(), isToday=d===todayISO(), used=new Set(), items=[]; state.stripDate=d;
-  VENUES.filter(v=>v.live&&(v.dates||[]).includes(d)&&!['cancelled','offsale'].includes(v.status)).forEach(v=>{ used.add(v.id); items.push({v}); });
+  { const lv=VENUES.filter(v=>v.live&&(v.dates||[]).includes(d)&&!['cancelled','offsale','unlisted'].includes(v.status)); lv.filter(v=>!v.free).concat(lv.filter(v=>v.free).slice(0,10)).forEach(v=>{ used.add(v.id); items.push({v}); }); }
   DATA.calendar.filter(e=>e.end?d>=e.date&&d<=e.end:e.date===d).sort((a,b)=>(a.end?1:0)-(b.end?1:0)).forEach(e=>{ const v=e.bookable&&BY_ID[e.bookable]; if(v) used.add(v.id); items.push({e,v}); });
   const open=VENUES.filter(v=>!used.has(v.id)&&isAvailable(v,{date:d,u21:false,veg:false})&&!v.dates);
   open.filter(v=>v.type==='activity').forEach(v=>items.push({v}));
@@ -468,7 +468,7 @@ function renderToday(dArg){
     return v?`<div class="tcard ${on?'on':''}" data-w="${v.id}" role="button" tabindex="0" aria-label="${esc(title)}, details">${inner}</div>`
             :`<a class="tcard" href="${esc(e.src||'#')}" target="_blank" rel="noopener" aria-label="${esc(title)} at ${esc(e.venue)} (opens listing)">${inner}</a>`;
   };
-  el.innerHTML=`<div class="th"><div><p class="kicker acc">${isToday?'What’s on today':'What’s on that day'}</p><h3>${esc(longDate(d))}</h3><small>${items.length} things in the city · drag to explore, tap + to add · prices checked ${esc(prettyDate(DATA.checked_on))}${state.liveOn?', live events from Ticketmaster':''}, photos from Wikipedia</small></div>
+  el.innerHTML=`<div class="th"><div><p class="kicker acc">${isToday?'What’s on today':'What’s on that day'}</p><h3>${esc(longDate(d))}</h3><small>${items.length} things in the city · drag to explore, tap + to add · prices checked ${esc(prettyDate(DATA.checked_on))}${state.liveSources&&state.liveSources.length?', live events from '+esc(state.liveSources.join(', ')):''}, photos from Wikipedia</small></div>
     <div class="arrows">${intro?'':'<button type="button" class="tlink" id="tFull">Full list</button>'}<button type="button" id="tPrev" aria-label="Previous">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>'}</button><button type="button" id="tNext" aria-label="Next">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>'}</button>${intro?'':'<button type="button" id="tClose" aria-label="Close">✕</button>'}</div></div>
     <div class="ttrack" id="ttrack">${items.map(card).join('')}</div>
 `;
@@ -733,7 +733,8 @@ const WICON={
 };
 /* [title, filter, icon, cover colour 1, cover colour 2] */
 const WISH_GROUPS=[
-  ['Concerts & shows',v=>v.live||['Concert','Holiday show','Broadway','Stand-up comedy'].includes(v.category),'shows','#3b3550','#8a6a8e'],
+  ['Concerts & shows',v=>(v.live&&!v.free)||['Concert','Holiday show','Broadway','Stand-up comedy'].includes(v.category),'shows','#3b3550','#8a6a8e'],
+  ['Free events that day · NYC Parks (live)',v=>v.live&&v.free,'outdoors','#6f8c6c','#c3d3ba'],
   ['Winter',v=>v.category==='Ice skating','winter','#7fa3b8','#c9dbe4'],
   ['Views',v=>v.category==='Observation deck','views','#3f5873','#8fa7bd'],
   ['Museums',v=>v.category==='Museum','museums','#a8946c','#dccfb2'],
@@ -799,7 +800,7 @@ const PHOTO_KEY='plantogether:photos:v1', photoWait={}; let PHOTOS={}, photoNet=
 try{ PHOTOS=JSON.parse(localStorage.getItem(PHOTO_KEY))||{}; }catch(e){ PHOTOS={}; }
 const okPhoto=u=>typeof u==='string'&&/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(u);
 function photoFor(id){
-  const lv=BY_ID[id]; if(lv&&lv.image&&/^https:\/\//.test(lv.image)) return Promise.resolve({src:lv.image,title:lv.name,credit:'event image from Ticketmaster'});
+  const lv=BY_ID[id]; if(lv&&lv.image&&/^https:\/\//.test(lv.image)) return Promise.resolve({src:lv.image,title:lv.name,credit:'image from '+(lv.provider||'the event listing')});
   if(window.PHOTO_EMBED&&PHOTO_EMBED[id]) return Promise.resolve(PHOTO_EMBED[id]);
   const titles=WIKI[id]; if(!titles) return Promise.resolve(null);
   const key=titles[0]; if(PHOTOS[key]&&okPhoto(PHOTOS[key].src)) return Promise.resolve(PHOTOS[key]);
@@ -820,7 +821,7 @@ function photoFor(id){
 function loadPhotos(root){ if(!root) return; root.querySelectorAll('.cover[data-ph]').forEach(c=>{ const img=c.querySelector('img'); if(!img||img.dataset.done) return; img.dataset.done='1';
   photoFor(c.dataset.ph).then(p=>{ if(!p||!c.isConnected) return; img.onload=()=>img.classList.add('ok'); img.onerror=()=>img.classList.remove('ok'); img.src=p.src;
     if(c.closest('.wm')){ const hi=new Image(); hi.onload=()=>{ if(c.isConnected) img.src=hi.src; }; hi.src=p.src.replace(/\/\d+px-/,'/960px-'); } }); }); }
-const wishPrice=v=>v.live&&!v.price_pp?'See price':v.unit_pricing?`$${v.unit_pricing.weekend_price}/boat`:v.price_pp?'$'+v.price_pp:'Free';
+const wishPrice=v=>v.live&&!v.price_pp&&!v.free?'See price':v.unit_pricing?`$${v.unit_pricing.weekend_price}/boat`:v.price_pp?'$'+v.price_pp:'Free';
 const groupOf=v=>WISH_GROUPS.find(g=>g[1](v))||WISH_GROUPS[0];
 const SC=p=>`<svg class="scene" viewBox="0 0 160 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${p}</svg>`;
 const SCENE={
@@ -859,7 +860,7 @@ function openWish(id){
   const maps='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(short(v)+' '+v.address);
   $('#wishCard').innerHTML=`${coverHtml(v)}<button type="button" class="wm-x" id="wmClose" aria-label="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="wm-body"><p class="kicker">${esc(v.category)} · ${esc(v.neighborhood)}</p><h2>${esc(v.name)}</h2>
-    <p class="wm-blurb">${esc(BLURB[id]||'')}</p>
+    <p class="wm-blurb">${esc(BLURB[id]||(v.live?v.price_note:''))}</p>
     <div class="facts"><span>Price</span><b>${price}${basis&&price!=='Free'?` <span style="font-weight:400">(${basis})</span>`:''}</b>
       ${when?`<span>When</span><b>${when}${v.dates?' · '+v.dates.map(prettyDate).join(', '):''}</b>`:''}
       <span>Time needed</span><b>${durText(v.duration_min)}</b>
@@ -1152,7 +1153,7 @@ $('#pricingBtn').onclick=()=>openPay('pricing');
 function registerVenues(list){ (list||[]).forEach(v=>{ if(!v||!v.id) return; if(BY_ID[v.id]) Object.assign(BY_ID[v.id],v); else { VENUES.push(v); BY_ID[v.id]=v; } }); }
 async function loadLive(date){
   if(!date) return; state.liveDate=date;
-  try{ const r=await api('GET','/live?date='+date); state.liveOn=!!r.configured; registerVenues(r.events||[]);
+  try{ const r=await api('GET','/live?date='+date); state.liveOn=!!r.configured; state.liveSources=r.sources||[]; registerVenues(r.events||[]);
     if((r.events||[]).length){
       if(state.step===2&&draft) renderWishes();
       if(document.body.classList.contains('stripopen')||intro) renderToday(state.stripDate||date);
@@ -1161,7 +1162,7 @@ async function loadLive(date){
 }
 const SHOWCAT=['Concert','Holiday show','Broadway','Stand-up comedy'];
 function buyLink(v){
-  if(v.live&&v.source_url) return {href:v.source_url,label:'Buy tickets'};
+  if(v.live&&v.source_url) return {href:v.source_url,label:v.free?'Details & RSVP':'Buy tickets'};
   if(v.type==='food') return /walk-in|counter|takeout|no reservation/i.test(v.booking||'')?{href:L.gmaps(v),label:'Directions'}:{href:`https://www.opentable.com/s?term=${encodeURIComponent(short(v))}&covers=2&metroId=8`,label:'Reserve'};
   if(SHOWCAT.includes(v.category)&&v.source_url) return {href:v.source_url,label:'Tickets'};
   if(v.source_url&&v.price_pp>0) return {href:v.source_url,label:'Book'};

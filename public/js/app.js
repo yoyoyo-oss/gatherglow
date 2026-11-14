@@ -44,6 +44,7 @@ const monthOf=d=>Number(d.slice(5,7));
 const toMin=s=>{ const [h,m]=s.split(':').map(Number); return h*60+m; };
 function ctxFor(){ const ms=state.people,mine=me(); const cap=state.groupCap!=null?state.groupCap:(mine&&mine.budget?Number(mine.budget):Infinity); return {date:state.date,size:Math.max(ms.length,1),u21:ms.some(m=>m.u21),veg:ms.some(m=>m.veg),cap}; }
 function isAvailable(v,c){
+  if(v.live&&(!v.price_pp||['cancelled','offsale','postponed'].includes(v.status))) return false;
   if(v.seasonal_months&&!v.seasonal_months.includes(monthOf(c.date))) return false;
   if(v.dates&&!v.dates.includes(c.date)) return false;
   if(v.date_range&&(c.date<v.date_range[0]||c.date>v.date_range[1])) return false;
@@ -168,6 +169,7 @@ function save(){}
 const memberSig=()=>JSON.stringify(state.people.map(m=>[m.id,m.schedule,m.wishes,m.foods,m.vibes,m.veg,m.u21]))+'|'+state.groupCap;
 let lastSig='', lastAiAt=0;
 function applyPlan(p){
+  registerVenues(Object.values(p.extVenues||{}));
   state.planId=p.id; state.planName=p.name; state.date=p.date; state.isOrganizer=p.isOrganizer; state.meId=p.meId;
   state.groupCap=p.groupCap; state.sample=p.sample; state.votes=p.votes||{}; state.comments=p.comments||{};
   state.suggested=p.suggested||[]; state.organizerPlus=p.organizerPlus; state.pass=!!p.pass; state.version=p.version; state.booked=p.booked; state.aiRaw=p.ai;
@@ -188,6 +190,9 @@ function applyPlan(p){
   else if(state.lockedOpt){ state.lockedOpt=null; if(state.step===5){ state.maxStep=4; goStep(4); } }
   if(state.step===4){ renderPlanList(); if(state.selected>=0) renderDetail(); }
   renderPlusBadge();
+  state.changeCredits=p.changeCredits||0; state.changesUsed=p.changesUsed||0;
+  handleNotes(p.notes||[]);
+  if(state.liveDate!==p.date) loadLive(p.date);
 }
 let pollBusy=false;
 async function poll(){
@@ -444,9 +449,10 @@ function dayBar(stops){ const a=DAY_START,b=1440,pct=m=>((Math.max(a,Math.min(b,
 function todayISO(){ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10); }
 const shortTime=t=>t?String(t).replace(':00','').replace(' PM','pm').replace(' AM','am'):'';
 const shortPrice=p=>{ if(!p||/not posted/i.test(p)||/^varies$/i.test(p)) return ''; const m=String(p).match(/\$\s?\d+/); return m?m[0].replace(' ','')+(/from/i.test(p)?'+':''):p; };
-function renderToday(){
+function renderToday(dArg){
   const el=$('#today'); if(!el) return;
-  const d=todayISO(), used=new Set(), items=[];
+  const d=dArg||todayISO(), isToday=d===todayISO(), used=new Set(), items=[]; state.stripDate=d;
+  VENUES.filter(v=>v.live&&(v.dates||[]).includes(d)&&!['cancelled','offsale'].includes(v.status)).forEach(v=>{ used.add(v.id); items.push({v}); });
   DATA.calendar.filter(e=>e.end?d>=e.date&&d<=e.end:e.date===d).sort((a,b)=>(a.end?1:0)-(b.end?1:0)).forEach(e=>{ const v=e.bookable&&BY_ID[e.bookable]; if(v) used.add(v.id); items.push({e,v}); });
   const open=VENUES.filter(v=>!used.has(v.id)&&isAvailable(v,{date:d,u21:false,veg:false})&&!v.dates);
   open.filter(v=>v.type==='activity').forEach(v=>items.push({v}));
@@ -456,19 +462,22 @@ function renderToday(){
     const time=e?(e.end?'Daily':shortTime(e.time)):v.starts?hs(toMin(v.starts[0])):v.hours?'Until '+hs(v.hours[1]):'';
     const price=v?wishPrice(v):shortPrice(e.price);
     const on=v&&draft&&draft.wishes.includes(v.id);
-    const pills=[price&&`<span class="${price==='Free'?'':'hot'}">${esc(price)}</span>`,time&&`<span>${esc(time)}</span>`].filter(Boolean).join('');
-    const inner=`${coverHtml(v||null,v?v.id:'venue:'+e.venue)}<div class="pills">${pills}</div>${v?`<button type="button" class="wpick" aria-pressed="${!!on}" aria-label="Add ${esc(title)} to my picks">${on?CHECK:PLUS}</button>`:''}<div class="cap"><b>${esc(title)}</b><small>${esc(sub)}</small></div>`;
+    const pills=[v&&v.live&&'<span class="live">LIVE</span>',price&&`<span class="${price==='Free'?'':'hot'}">${esc(price)}</span>`,time&&`<span>${esc(time)}</span>`].filter(Boolean).join('');
+    const bl=v&&buyLink(v);
+    const inner=`${coverHtml(v||null,v?v.id:'venue:'+e.venue)}<div class="pills">${pills}</div>${v?`<button type="button" class="wpick" aria-pressed="${!!on}" aria-label="Add ${esc(title)} to my picks">${on?CHECK:PLUS}</button>`:''}<div class="cap"><b>${esc(title)}</b><small>${esc(sub)}</small>${v?rateLine(v)+`<a class="buy" href="${esc(bl.href)}" target="_blank" rel="noopener">${bl.label} ↗</a>`:''}</div>`;
     return v?`<div class="tcard ${on?'on':''}" data-w="${v.id}" role="button" tabindex="0" aria-label="${esc(title)}, details">${inner}</div>`
             :`<a class="tcard" href="${esc(e.src||'#')}" target="_blank" rel="noopener" aria-label="${esc(title)} at ${esc(e.venue)} (opens listing)">${inner}</a>`;
   };
-  el.innerHTML=`<div class="th"><div><p class="kicker acc">What’s on today</p><h3>${esc(longDate(d))}</h3><small>${items.length} things in the city · drag to explore, tap + to add · prices checked ${esc(prettyDate(DATA.checked_on))}, photos from Wikipedia</small></div>
-    <div class="arrows"><button type="button" id="tPrev" aria-label="Previous">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>'}</button><button type="button" id="tNext" aria-label="Next">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>'}</button></div></div>
+  el.innerHTML=`<div class="th"><div><p class="kicker acc">${isToday?'What’s on today':'What’s on that day'}</p><h3>${esc(longDate(d))}</h3><small>${items.length} things in the city · drag to explore, tap + to add · prices checked ${esc(prettyDate(DATA.checked_on))}${state.liveOn?', live events from Ticketmaster':''}, photos from Wikipedia</small></div>
+    <div class="arrows">${intro?'':'<button type="button" class="tlink" id="tFull">Full list</button>'}<button type="button" id="tPrev" aria-label="Previous">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>'}</button><button type="button" id="tNext" aria-label="Next">${'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>'}</button>${intro?'':'<button type="button" id="tClose" aria-label="Close">✕</button>'}</div></div>
     <div class="ttrack" id="ttrack">${items.map(card).join('')}</div>
 `;
   const tr=$('#ttrack'), step=()=>{ const c=tr.querySelector('.tcard'); return c?c.getBoundingClientRect().width+14:220; };
   let touched=false; const stopAuto=()=>{ touched=true; };
   $('#tPrev').onclick=()=>{ stopAuto(); tr.scrollBy({left:-step()*2}); };
   $('#tNext').onclick=()=>{ stopAuto(); tr.scrollBy({left:step()*2}); };
+  const tcl=$('#tClose'); if(tcl) tcl.onclick=()=>toggleStrip(false);
+  const tfu=$('#tFull'); if(tfu) tfu.onclick=()=>{ toggleStrip(false); toggleWhatsOn(true); };
   /* drag with the mouse; touch scrolls natively */
   let sx=0,sl=0,down=false,moved=false;
   tr.addEventListener('pointerdown',ev=>{ if(ev.pointerType!=='mouse'||ev.button!==0||ev.target.closest('.wpick')) return; down=true; moved=false; sx=ev.clientX; sl=tr.scrollLeft; stopAuto(); });
@@ -478,11 +487,12 @@ function renderToday(){
   tr.addEventListener('touchstart',stopAuto,{passive:true});
   tr.addEventListener('wheel',ev=>{ if(Math.abs(ev.deltaX)>Math.abs(ev.deltaY)) { stopAuto(); ev.stopPropagation(); } },{passive:true});
   tr.querySelectorAll('.tcard[data-w]').forEach(c=>{ const id=c.dataset.w;
-    c.onclick=ev=>{ if(ev.target.closest('.wpick')) return; openWish(id); };
+    c.onclick=ev=>{ if(ev.target.closest('.wpick,.buy')) return; openWish(id); };
     c.onkeydown=ev=>{ if((ev.key==='Enter'||ev.key===' ')&&ev.target===c){ ev.preventDefault(); openWish(id); } };
     c.querySelector('.wpick').onclick=ev=>{ ev.stopPropagation(); toggleWish(id); const added=draft.wishes.includes(id), v=BY_ID[id];
       if(added&&v.dates&&state.step===1&&state.date!==d){ state.date=d; $('#planDate').value=d; showWeekday(); renderTease(); toast(`Added. Your plan is now set for today, ${longDate(d)}.`); }
-      else if(state.step===1) toast(added?'Added to your picks. They’ll be on your planet.':'Removed from your picks'); };
+      else if(state.step===1) toast(added?'Added to your picks. They’ll be on your planet.':'Removed from your picks');
+      else toast(added?'Added to your picks. Open your planet and save it to share with the group.':'Removed from your picks'); };
   });
   /* gentle drift until someone touches it */
   let hover=false; el.onmouseenter=()=>{ hover=true; }; el.onmouseleave=()=>{ hover=false; };
@@ -545,7 +555,7 @@ buildSkyline();
 /* ================= navigation ================= */
 function goStep(n){
   if(n>state.maxStep) return;
-  if(state.lockedOpt&&n<5) return toast('This plan is locked. Use New plan to plan another day.');
+  if(state.lockedOpt&&n<5&&n!==2) return toast('This plan is locked. The organizer can change it from the ticket (step 5).');
   if(n>=2&&!state.planId) return;
   if(n<=2&&state.options) discardPlans();
   if(n===3){ ents.forEach(e=>{ if(e.mode!=='orbit'){ e.mode='fly'; e.t=0; e.from=e.obj.position.clone(); } e.obj.visible=true; e.obj.scale.setScalar(PS); }); core.visible=true; core.scale.setScalar(1); coreShrink=0; updateAbsorb(); }
@@ -723,7 +733,7 @@ const WICON={
 };
 /* [title, filter, icon, cover colour 1, cover colour 2] */
 const WISH_GROUPS=[
-  ['Concerts & shows',v=>['Concert','Holiday show','Broadway','Stand-up comedy'].includes(v.category),'shows','#3b3550','#8a6a8e'],
+  ['Concerts & shows',v=>v.live||['Concert','Holiday show','Broadway','Stand-up comedy'].includes(v.category),'shows','#3b3550','#8a6a8e'],
   ['Winter',v=>v.category==='Ice skating','winter','#7fa3b8','#c9dbe4'],
   ['Views',v=>v.category==='Observation deck','views','#3f5873','#8fa7bd'],
   ['Museums',v=>v.category==='Museum','museums','#a8946c','#dccfb2'],
@@ -787,8 +797,9 @@ const WIKI={
 };
 const PHOTO_KEY='plantogether:photos:v1', photoWait={}; let PHOTOS={}, photoNet=true;
 try{ PHOTOS=JSON.parse(localStorage.getItem(PHOTO_KEY))||{}; }catch(e){ PHOTOS={}; }
-const okPhoto=u=>typeof u==='string'&&/^https:\/\/upload\.wikimedia\.org\//.test(u);
+const okPhoto=u=>typeof u==='string'&&/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(u);
 function photoFor(id){
+  const lv=BY_ID[id]; if(lv&&lv.image&&/^https:\/\//.test(lv.image)) return Promise.resolve({src:lv.image,title:lv.name,credit:'event image from Ticketmaster'});
   if(window.PHOTO_EMBED&&PHOTO_EMBED[id]) return Promise.resolve(PHOTO_EMBED[id]);
   const titles=WIKI[id]; if(!titles) return Promise.resolve(null);
   const key=titles[0]; if(PHOTOS[key]&&okPhoto(PHOTOS[key].src)) return Promise.resolve(PHOTOS[key]);
@@ -809,7 +820,7 @@ function photoFor(id){
 function loadPhotos(root){ if(!root) return; root.querySelectorAll('.cover[data-ph]').forEach(c=>{ const img=c.querySelector('img'); if(!img||img.dataset.done) return; img.dataset.done='1';
   photoFor(c.dataset.ph).then(p=>{ if(!p||!c.isConnected) return; img.onload=()=>img.classList.add('ok'); img.onerror=()=>img.classList.remove('ok'); img.src=p.src;
     if(c.closest('.wm')){ const hi=new Image(); hi.onload=()=>{ if(c.isConnected) img.src=hi.src; }; hi.src=p.src.replace(/\/\d+px-/,'/960px-'); } }); }); }
-const wishPrice=v=>v.unit_pricing?`$${v.unit_pricing.weekend_price}/boat`:v.price_pp?'$'+v.price_pp:'Free';
+const wishPrice=v=>v.live&&!v.price_pp?'See price':v.unit_pricing?`$${v.unit_pricing.weekend_price}/boat`:v.price_pp?'$'+v.price_pp:'Free';
 const groupOf=v=>WISH_GROUPS.find(g=>g[1](v))||WISH_GROUPS[0];
 const SC=p=>`<svg class="scene" viewBox="0 0 160 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${p}</svg>`;
 const SCENE={
@@ -826,8 +837,8 @@ const PLUS='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="
 const wishCountText=()=>`${draft.wishes.length} selected`;
 function renderWishes(){
   if(!draft) return; const avail=VENUES.filter(openOnDate);
-  $('#wishes').innerHTML=WISH_GROUPS.map(g=>{ const vs=avail.filter(g[1]); if(!vs.length) return ''; return `<div class="wishgroup"><span>${g[0]}</span><div class="wgrid">${vs.map(v=>{ const on=draft.wishes.includes(v.id), t=v.starts&&v.starts.length===1?' · '+hs(toMin(v.starts[0])):''; return `<div class="wcard ${on?'on':''}" data-w="${v.id}" role="button" tabindex="0" aria-label="${esc(short(v))}: open details">${coverHtml(v)}<span class="wprice">${wishPrice(v)}${t}</span><button type="button" class="wpick" data-pick="${v.id}" aria-pressed="${on}" aria-label="${on?'Remove':'Add'} ${esc(short(v))}">${on?CHECK:PLUS}</button><div class="meta"><b>${esc(short(v))}</b><small>${esc(v.category)} · ${esc(v.neighborhood)}</small></div></div>`; }).join('')}</div></div>`; }).join('')+`<p class="hint" id="wishCount">${wishCountText()}</p>`;
-  $$('#wishes .wcard').forEach(c=>{ c.onclick=()=>openWish(c.dataset.w); c.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===c){ e.preventDefault(); openWish(c.dataset.w); } }; });
+  $('#wishes').innerHTML=WISH_GROUPS.map(g=>{ const vs=avail.filter(g[1]); if(!vs.length) return ''; return `<div class="wishgroup"><span>${g[0]}</span><div class="wgrid">${vs.map(v=>{ const on=draft.wishes.includes(v.id), t=v.starts&&v.starts.length===1?' · '+hs(toMin(v.starts[0])):''; const bl=buyLink(v), pr=wishPrice(v); return `<div class="wcard tcard ${on?'on':''}" data-w="${v.id}" role="button" tabindex="0" aria-label="${esc(short(v))}: open details">${coverHtml(v)}<div class="pills">${v.live?'<span class="live">LIVE</span>':''}<span class="${pr==='Free'?'':'hot'}">${esc(pr)}</span>${t?`<span>${esc(t.replace(' · ',''))}</span>`:''}</div><button type="button" class="wpick" data-pick="${v.id}" aria-pressed="${on}" aria-label="${on?'Remove':'Add'} ${esc(short(v))}">${on?CHECK:PLUS}</button><div class="cap"><b>${esc(short(v))}</b><small>${esc(v.category)} · ${esc(v.neighborhood)}</small>${rateLine(v)}<a class="buy" href="${esc(bl.href)}" target="_blank" rel="noopener">${bl.label} ↗</a></div></div>`; }).join('')}</div></div>`; }).join('')+`<p class="hint" id="wishCount">${wishCountText()}</p>`;
+  $$('#wishes .wcard').forEach(c=>{ c.onclick=e=>{ if(e.target.closest('.buy')) return; openWish(c.dataset.w); }; c.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===c){ e.preventDefault(); openWish(c.dataset.w); } }; });
   $$('#wishes .wpick').forEach(b=>b.onclick=e=>{ e.stopPropagation(); toggleWish(b.dataset.pick); });
   if(wstep===3) loadPhotos($('#wishes'));
 }
@@ -856,11 +867,12 @@ function openWish(id){
       <span>Booking</span><b>${esc(v.booking)}</b>
       ${v.age21?'<span>Age</span><b>21 and over</b>':''}${v.type==='food'?`<span>Vegetarian</span><b>${v.vegetarian?'Options available':'Limited'}</b>`:''}</div>
     <p class="note">${esc(v.price_note)}</p>
-    <div class="applinks"><a href="${maps}" target="_blank" rel="noopener">Open in Google Maps</a>${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener">Price source</a>`:''}</div>
+    <div class="applinks"><a href="${maps}" target="_blank" rel="noopener">Open in Google Maps</a>${v.source_url?`<a href="${esc(v.source_url)}" target="_blank" rel="noopener">Price source</a>`:''}<a href="https://www.yelp.com/search?find_desc=${encodeURIComponent(short(v))}&find_loc=New+York%2C+NY" target="_blank" rel="noopener">Yelp reviews</a></div>
+    <div class="revbox" id="wmRev"><p class="hint">Loading ratings…</p></div>
     <p class="credit" id="wmCredit" hidden></p></div>
-    <div class="wm-foot"><button type="button" class="btn line" id="wmBack">Close</button><button type="button" class="btn ${on?'dark':'primary'}" id="wmPick">${on?'Added · tap to remove':'Add to my wishes'}</button></div>`;
+    <div class="wm-foot"><button type="button" class="btn line" id="wmBack">Close</button><a class="btn line" href="${esc(buyLink(v).href)}" target="_blank" rel="noopener">${buyLink(v).label} ↗</a><button type="button" class="btn ${on?'dark':'primary'}" id="wmPick">${on?'Added · tap to remove':'Add to my wishes'}</button></div>`;
   $('#wmClose').onclick=$('#wmBack').onclick=closeWish; $('#wmPick').onclick=()=>toggleWish(id);
-  $('#wishModal').classList.add('show'); loadPhotos($('#wishCard'));
+  $('#wishModal').classList.add('show'); loadPhotos($('#wishCard')); loadReviews(v);
   photoFor(id).then(p=>{ const c=$('#wmCredit'); if(p&&c&&wishOpen===id){ c.hidden=false; c.innerHTML=p.credit?`Photo: ${esc(p.credit)}`:`Photo: Wikipedia, ${p.page?`<a href="${esc(p.page)}" target="_blank" rel="noopener">${esc(p.title)}</a>`:esc(p.title)}`; } });
   setTimeout(()=>{ const b=$('#wmPick'); if(b) b.focus(); },30);
 }
@@ -878,6 +890,7 @@ function renderGroupTT(){
     <div class="freelist">${wins.length?wins.map(([a,b])=>`<span>${hs(a)}–${hs(b)}</span>`).join(''):'<span style="background:var(--over-bg);color:var(--over)">No shared time yet</span>'}</div>
     <div class="legend">${Object.values(BLOCKS).map(b=>`<span><i style="background:${b.c}"></i>${b.l}</span>`).join('')}</div>`;
 }
+function outTag(p){ return p&&p.out?'<span class="outtag">can’t make it</span>':''; }
 function renderCrew(){
   $('#crewList').innerHTML=state.people.map(p=>`<div class="mate"><i style="background:${p.color}"></i><div ${p.id===state.meId?`data-edit="${p.id}" title="Edit your planet"`:''}>${esc(p.name)}${p.sample?' <span class="badge warn">sample</span>':''}<small>Free ${personWindows(p).map(([a,b])=>hs(a)+'–'+hs(b)).join(', ')||'—'} · ${(p.wishes||[]).length} wishes · budget private</small></div>${p.id===state.meId?'<span class="you">You</span>':(state.isOrganizer?`<button type="button" class="linkbtn" data-remove="${p.id}">Remove</button>`:'')}</div>`).join('')||'<p class="hint">Nobody has joined yet. Make your planet, then share the link.</p>';
   $$('#crewList [data-edit]').forEach(m=>m.onclick=()=>editPerson(m.dataset.edit));
@@ -1073,7 +1086,7 @@ function appsHtml(o){ return `<h4>Open in other apps</h4><div class="apps">
 async function lockPlan(i){
   if(i<0||!state.options) return;
   const o=state.options[i];
-  try{ const r=await api('POST','/plans/'+state.planId+'/lock',{token:TOKEN,option:{stops:o.stops,label:o.label,perPerson:o.perPerson}}); state.selected=-1; $('#detail').classList.remove('show'); applyPlan(r.plan); toast('Plan locked in. Everyone in the group now sees it.'); }
+  try{ const r=await api('POST','/plans/'+state.planId+'/lock',{token:TOKEN,option:{stops:o.stops,label:o.label,perPerson:o.perPerson},venues:itemsFor(o).filter(v=>v.live)}); state.selected=-1; $('#detail').classList.remove('show'); applyPlan(r.plan); toast('Plan locked in. Everyone in the group now sees it.'); }
   catch(e){ toast(e.message); }
 }
 function renderTicket(){
@@ -1086,6 +1099,7 @@ function renderTicket(){
     ${appsHtml(o)}<div class="perforation"></div>${pricePanel(o)}
     ${b?`<p class="hint">Test booking: these codes are simulated. No reservation was made and nothing was charged.</p><div class="btnrow"><button class="btn line" id="remindBtn" type="button">Remind me in 4 weeks</button><button class="btn dark" id="againBtn" type="button">Plan the next one</button></div>`
        :(state.isOrganizer?`<div class="btnrow"><button class="btn line" id="backPlans" type="button">Unlock</button><button class="btn primary" id="bookBtn" type="button">Book all for ${c.size}</button></div><p class="hint">Booking is simulated (test data). Use the links above to book for real.</p>`:`<p class="hint">Waiting for the organizer to book. This page updates by itself.</p>`)}`;
+  ticketExtras(o,b);
   if(b){ $('#againBtn').onclick=()=>{ location.href='/?start=1'; }; $('#remindBtn').onclick=remindIcs; refreshMe(); return; }
   const bb=$('#bookBtn'); if(bb) bb.onclick=async()=>{ try{ const r=await api('POST','/plans/'+state.planId+'/book',{token:TOKEN,freeIds:itemsFor(o).filter(v=>v.price_pp===0).map(v=>v.id)}); applyPlan(r.plan); for(let k=0;k<3;k++) setTimeout(()=>glow.emit(new V3(rand(-4,4),rand(2,4),-3),['#ffffff','#f3d7a6'],120,4.5),k*260); toast('Booked. Everyone in the group sees the itinerary.'); }catch(e){ toast(e.message); } };
   const bp=$('#backPlans'); if(bp) bp.onclick=async()=>{ try{ const r=await api('POST','/plans/'+state.planId+'/lock',{token:TOKEN,option:null}); applyPlan(r.plan); }catch(e){ toast(e.message); } };
@@ -1094,7 +1108,8 @@ function renderTicket(){
 /* ---- Plus paywall (Stripe Checkout, test mode) ---- */
 const TIER_NAME={plus:'Plus',family:'Family',crew:'Crew'};
 function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; b.textContent=TIER_NAME[state.tier]||'Plus'; } }
-let payCycle='y';
+let payCycle='y', payWhy='';
+const CHANGE_TIER={key:'change',name:'Plan change',who:'Reopen this booked plan once',once:299,feat:['Change stops, time or people','Everyone votes again','No subscription']};
 const TIERS=[
   {key:'pass',name:'Event Pass',who:'One big occasion: a birthday, a reunion, a visit',once:799,per:null,feat:['This plan only, no subscription','AI organizer for this plan','Up to 12 people']},
   {key:'plus',name:'Plus',who:'For the one friend who always organizes',m:999,y:7900,seats:1,feat:['Unlimited group plans','AI organizer on every plan','Up to 12 people per plan']},
@@ -1105,16 +1120,16 @@ const usd=c=>'$'+(c/100).toFixed(c%100?2:0);
 function renderTiers(){
   const h=state.health||{}, ok=!!h.stripe;
   $$('#payCycle button').forEach(b=>b.classList.toggle('on',b.dataset.c===payCycle));
-  $('#payTiers').innerHTML=TIERS.map(t=>{
+  $('#payTiers').innerHTML=(payWhy==='change'?[CHANGE_TIER]:[]).concat(TIERS).map(t=>{
     const yearly=payCycle==='y', cents=t.once||(yearly?t.y:t.m), unit=t.once?'one-time':yearly?'/year':'/month';
     const perMonth=t.once?null:(yearly?t.y/12:t.m), pp=t.seats>1?`${usd(Math.round(perMonth/t.seats))} per person a month`:(yearly&&!t.once?`${usd(Math.round(perMonth))} a month, billed yearly`:'');
-    const mine=!t.once&&state.tier===t.key, passOn=t.once&&state.pass;
+    const mine=!t.once&&state.tier===t.key, passOn=t.key==='pass'&&state.pass;
     const dis=!ok||mine||passOn||(t.once&&!state.planId);
-    const label=mine?'Your plan':passOn?'Added to this plan':t.once&&!state.planId?'Open a plan first':t.once?'Buy for this plan':`Choose ${t.name}`;
+    const label=mine?'Your plan':passOn?'Added to this plan':t.once&&!state.planId?'Open a plan first':t.key==='change'?'Buy plan change':t.once?'Buy for this plan':`Choose ${t.name}`;
     return `<div class="tier ${t.best?'best':''}">${t.best?'<span class="flag">Best for groups</span>':''}<h3>${t.name}</h3><div class="who">${t.who}</div>
       <div class="amt">${usd(cents)}<small> ${unit}</small></div><div class="pp">${pp}</div>
       <ul>${t.feat.map(f=>`<li>${f}</li>`).join('')}</ul>
-      <button type="button" class="btn ${t.best?'primary':'dark'} sm" data-buy="${t.once?'pass':t.key+'_'+payCycle}" ${dis?'disabled':''}>${label}</button></div>`;
+      <button type="button" class="btn ${t.best?'primary':'dark'} sm" data-buy="${t.once?t.key:t.key+'_'+payCycle}" ${dis?'disabled':''}>${label}</button></div>`;
   }).join('');
   $$('#payTiers [data-buy]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='Opening checkout…';
     try{ const r=await api('POST','/checkout',{token:TOKEN,planId:state.planId,plan:b.dataset.buy}); location.href=r.url; }
@@ -1124,13 +1139,119 @@ function renderTiers(){
 $$('#payCycle button').forEach(b=>b.onclick=()=>{ payCycle=b.dataset.c; renderTiers(); });
 function openPay(reason,msg){
   const h=state.health||{};
-  $('#payReason').textContent=msg||(reason==='ai'?'The AI organizer comes with an Event Pass, Plus, Family or Crew.':reason==='plans'?'The free plan includes 1 group plan a month.':'Organizers and their groups pay; businesses never do. Prices in US dollars.');
+  payWhy=reason;
+  $('#payReason').textContent=msg||(reason==='change'?'Changing a booked plan is included in Plus, Family and Crew. Or buy one change for this plan.':reason==='ai'?'The AI organizer comes with an Event Pass, Plus, Family or Crew.':reason==='plans'?'The free plan includes 1 group plan a month.':'Organizers and their groups pay; businesses never do. Prices in US dollars.');
   $('#payTest').hidden=h.stripeMode!=='test'; $('#payOff').hidden=!!h.stripe;
   renderTiers(); $('#payModal').classList.add('show');
 }
 $('#payClose').onclick=()=>$('#payModal').classList.remove('show');
 $('#payModal').addEventListener('click',e=>{ if(e.target.id==='payModal') $('#payModal').classList.remove('show'); });
 $('#pricingBtn').onclick=()=>openPay('pricing');
+
+/* ---- live events, ratings, reviews, alerts, changing a booked plan ---- */
+function registerVenues(list){ (list||[]).forEach(v=>{ if(!v||!v.id) return; if(BY_ID[v.id]) Object.assign(BY_ID[v.id],v); else { VENUES.push(v); BY_ID[v.id]=v; } }); }
+async function loadLive(date){
+  if(!date) return; state.liveDate=date;
+  try{ const r=await api('GET','/live?date='+date); state.liveOn=!!r.configured; registerVenues(r.events||[]);
+    if((r.events||[]).length){
+      if(state.step===2&&draft) renderWishes();
+      if(document.body.classList.contains('stripopen')||intro) renderToday(state.stripDate||date);
+      if(state.step===4&&!state.lockedOpt){ refreshOptions(); renderPlanList(); }
+    } }catch(e){}
+}
+const SHOWCAT=['Concert','Holiday show','Broadway','Stand-up comedy'];
+function buyLink(v){
+  if(v.live&&v.source_url) return {href:v.source_url,label:'Buy tickets'};
+  if(v.type==='food') return /walk-in|counter|takeout|no reservation/i.test(v.booking||'')?{href:L.gmaps(v),label:'Directions'}:{href:`https://www.opentable.com/s?term=${encodeURIComponent(short(v))}&covers=2&metroId=8`,label:'Reserve'};
+  if(SHOWCAT.includes(v.category)&&v.source_url) return {href:v.source_url,label:'Tickets'};
+  if(v.source_url&&v.price_pp>0) return {href:v.source_url,label:'Book'};
+  return {href:L.gmaps(v),label:'Map'};
+}
+const starStr=n=>{ const k=Math.round(n); return '★'.repeat(k)+'☆'.repeat(5-k); };
+function rateLine(v){
+  const s=(state.vstats||{})[v.id]||{}, g=(state.google||{})[v.id], out=[];
+  if(g&&g.rating) out.push(`★ ${Number(g.rating).toFixed(1)} <i>Google (${Number(g.count||0).toLocaleString()})</i>`);
+  if(s.avg) out.push(`★ ${s.avg.toFixed(1)} <i>GatherGlow (${s.count})</i>`);
+  if(s.rank&&s.rank<=10) out.push(`#${s.rank} most wished`);
+  if(v.live&&v.status&&v.status!=='onsale') out.push(esc(v.status.toUpperCase()));
+  return out.length?`<span class="rate">${out.join(' · ')}</span>`:'';
+}
+async function loadVstats(){ try{ const r=await api('GET','/venues/stats'); state.vstats=r.stats||{}; rerenderCards(); }catch(e){} }
+async function loadGoogle(){
+  if(!(state.health||{}).googleRatings) return; state.google=state.google||{};
+  for(const v of VENUES.filter(x=>!x.live)){ if(v.id in state.google) continue;
+    try{ const r=await api('GET','/venues/'+v.id+'?name='+encodeURIComponent(short(v))+'&address='+encodeURIComponent(v.address||'')); state.google[v.id]=r.google||null; }catch(e){ state.google[v.id]=null; } }
+  rerenderCards();
+}
+function rerenderCards(){ if(intro||document.body.classList.contains('stripopen')) renderToday(state.stripDate); if(state.step===2&&draft) renderWishes(); }
+async function loadReviews(v){
+  const box=$('#wmRev'); if(!box) return;
+  try{
+    const r=await api('GET','/venues/'+v.id+'?name='+encodeURIComponent(short(v))+'&address='+encodeURIComponent(v.address||''));
+    if(wishOpen!==v.id) return; const g=r.google, s=(state.vstats||{})[v.id]||{};
+    const sum=[g&&g.rating?`<span>★ ${Number(g.rating).toFixed(1)} <small>${Number(g.count||0).toLocaleString()} Google reviews</small></span>`:'',
+      r.avg?`<span>★ ${r.avg.toFixed(1)} <small>${r.count} GatherGlow ${r.count===1?'rating':'ratings'}</small></span>`:'',
+      s.rank?`<span>#${s.rank} <small>most wished on GatherGlow · ${r.wishes} ${r.wishes===1?'person':'people'}</small></span>`:''].join('');
+    const gr=(g&&g.reviews||[]).map(x=>`<div class="rv"><span class="st">${starStr(x.rating||0)}</span> <b>${esc(x.author)}</b> <small>${esc(x.when)} · Google</small><br>${esc(x.text)}</div>`).join('');
+    const ours=(r.reviews||[]).map(x=>`<div class="rv"><span class="st">${starStr(x.stars)}</span> <b>${esc(x.name)}</b> <small>${esc(prettyDate(new Date(x.at).toISOString().slice(0,10)))} · went with GatherGlow</small>${x.text?'<br>'+esc(x.text):''}</div>`).join('');
+    const gl=g&&g.url?`<a href="${esc(g.url)}" target="_blank" rel="noopener">All Google reviews ↗</a>`:`<a href="${esc(L.gmaps(v))}" target="_blank" rel="noopener">Google reviews ↗</a>`;
+    box.innerHTML=`<h4>Ratings &amp; reviews</h4>${sum?`<div class="rsum">${sum}</div>`:''}${ours}${gr}
+      ${!ours&&!gr?'<p class="hint">No GatherGlow ratings yet. People rate each stop after their outing.</p>':''}
+      <div class="applinks">${gl}<a href="https://www.yelp.com/search?find_desc=${encodeURIComponent(short(v))}&find_loc=New+York%2C+NY" target="_blank" rel="noopener">Yelp ↗</a></div>
+      ${r.googleConfigured?'':'<p class="hint" style="margin-top:6px">Google star ratings appear here once the deployment has a Google Places key.</p>'}`;
+  }catch(e){ box.innerHTML='<p class="hint">Ratings are unavailable right now.</p>'; }
+}
+function toggleStrip(on){
+  on=on??!document.body.classList.contains('stripopen');
+  document.body.classList.toggle('stripopen',on); $('#whatsonBtn').classList.toggle('hot',on);
+  if(on){ const d=state.date&&state.planId?state.date:todayISO(); renderToday(d); if(state.liveDate!==d) loadLive(d); }
+}
+/* alerts: notes on the plan (live price/time/status changes, people dropping out, plan changes) */
+const notesSeen={};
+function seenKey(){ return 'gg:seen:'+state.planId; }
+function getSeen(){ try{ return JSON.parse(localStorage.getItem(seenKey()))||[]; }catch(e){ return []; } }
+function handleNotes(notes){
+  state.notes=notes; const seen=getSeen(), fresh=notes.filter(n=>!seen.includes(n.id));
+  $('#alertBtn').hidden=!state.planId; const c=$('#alertCount'); c.hidden=!fresh.length; c.textContent=fresh.length;
+  const prev=notesSeen[state.planId];
+  if(prev){ const nw=notes.filter(n=>!prev.has(n.id)); if(nw.length){ toast('Update: '+nw[0].text);
+    if(document.hidden&&'Notification' in window&&Notification.permission==='granted'){ try{ new Notification('GatherGlow · '+state.planName,{body:nw[0].text}); }catch(e){} } } }
+  notesSeen[state.planId]=new Set(notes.map(n=>n.id));
+  if($('#alertModal').classList.contains('show')) renderAlerts();
+}
+function renderAlerts(){
+  const ns=state.notes||[];
+  $('#alertList').innerHTML=ns.map(n=>`<div class="al">${esc(n.text)}<small>${new Date(n.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small></div>`).join('')||'<p class="hint">No alerts yet. You’ll see them here and as a pop-up when something changes.</p>';
+  try{ localStorage.setItem(seenKey(),JSON.stringify(ns.map(n=>n.id))); }catch(e){} $('#alertCount').hidden=true;
+  const pb=$('#alertPush'); const perm='Notification' in window?Notification.permission:'unsupported';
+  pb.textContent=perm==='granted'?'Browser alerts are on':perm==='denied'?'Browser alerts are blocked':perm==='unsupported'?'Browser alerts not supported':'Turn on browser alerts'; pb.disabled=perm!=='default';
+}
+$('#alertBtn').onclick=()=>{ renderAlerts(); $('#alertModal').classList.add('show'); };
+$('#alertClose').onclick=()=>$('#alertModal').classList.remove('show');
+$('#alertModal').addEventListener('click',e=>{ if(e.target.id==='alertModal') $('#alertModal').classList.remove('show'); });
+$('#alertPush').onclick=async()=>{ try{ await Notification.requestPermission(); }catch(e){} renderAlerts(); };
+/* ticket: alerts, who can't make it, change the plan, rate your stops */
+function ticketExtras(o,b){
+  const t=$('#ticket'), ns=(state.notes||[]).slice(0,3), out=state.people.filter(p=>p.out);
+  const top=t.querySelector('.ticket-top');
+  if(top&&(ns.length||out.length)) top.insertAdjacentHTML('afterend',`<div class="notes">${out.map(p=>`<div class="member"><b>${esc(p.name)}</b> can’t make it anymore.</div>`).join('')}${ns.map(n=>`<div class="${esc(n.kind)}"><small>${new Date(n.at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</small>${esc(n.text)}</div>`).join('')}</div>`);
+  const mine=me(), isOrg=state.isOrganizer;
+  const tierFree=['plus','family','crew'].includes(state.tier)&&!state.coveredBy;
+  const hint=tierFree?'Included in your plan':state.pass&&!state.changesUsed?'Included with the Event Pass':state.changeCredits?'1 change available':'$2.99, or free with Plus/Family/Crew';
+  let html=`<h4>Plans change</h4><p class="hint">Someone can’t come, or the group wants something else? Change the plan even after booking.</p><div class="btnrow">`;
+  if(isOrg) html+=`<button class="btn line" id="changeBtn" type="button">Change plan</button>`;
+  if(mine&&!isOrg) html+=`<button class="btn line" id="outBtn" type="button">${mine.out?'I can make it again':'I can’t make it'}</button>`;
+  if(mine) html+=`<button class="btn line" id="editDayBtn" type="button">Edit my times</button>`;
+  html+=`</div>${isOrg?`<p class="hint">Change plan: ${hint}.</p>`:''}`;
+  if(b&&mine){ html+=`<h4>Rate your stops</h4><p class="hint">Your stars and comments show on each place for other GatherGlow users.</p>`+o.stops.map(s=>{ const v=BY_ID[s.id]; return v?`<div class="rateit" data-v="${v.id}"><b>${esc(short(v))}</b><span class="stars">${[1,2,3,4,5].map(n=>`<button type="button" data-s="${n}" aria-label="${n} star${n>1?'s':''}">★</button>`).join('')}</span><input type="text" maxlength="200" placeholder="Add a comment (optional)"></div>`:''; }).join(''); }
+  t.insertAdjacentHTML('beforeend',`<div class="changebox">${html}</div>`);
+  const cb=$('#changeBtn'); if(cb) cb.onclick=async()=>{ try{ const r=await api('POST','/plans/'+state.planId+'/reopen',{token:TOKEN}); state.lockedOpt=null; state.maxStep=4; applyPlan(r.plan); goStep(4); refreshOptions(); renderPlanList(); toast('Plan reopened. Pick or vote on a new option.'); }catch(e){ if(e.code==='change_required') openPay('change',e.message); else toast(e.message); } };
+  const ob=$('#outBtn'); if(ob) ob.onclick=async()=>{ try{ const r=await api('POST','/plans/'+state.planId+'/out',{token:TOKEN,out:!mine.out}); applyPlan(r.plan); renderTicket(); toast(mine.out?'Welcome back. The group can see you’re in.':'The group and the organizer were told.'); }catch(e){ toast(e.message); } };
+  const eb=$('#editDayBtn'); if(eb) eb.onclick=()=>{ state.maxStep=Math.max(state.maxStep,5); goStep(2); if(state.meId) editPerson(state.meId); wstep=2; fillForm(); toast('Change your times and save. The group gets an alert.'); };
+  $$('#ticket .rateit').forEach(row=>{ const vid=row.dataset.v; row.querySelectorAll('[data-s]').forEach(btn=>btn.onclick=async()=>{ const n=+btn.dataset.s;
+    row.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',+x.dataset.s<=n));
+    try{ const r=await api('POST','/reviews',{token:TOKEN,planId:state.planId,venueId:vid,stars:n,text:row.querySelector('input').value}); toast(`Thanks. ${short(BY_ID[vid])} is now ★ ${r.avg.toFixed(1)} from ${r.count} ${r.count===1?'rating':'ratings'}.`); loadVstats(); }catch(e){ toast(e.message); } }); });
+}
 
 /* ---- retention: my plans, saved planet, reminder ---- */
 state.myPlans=[]; state.stats=null; state.profile=null;
@@ -1190,7 +1311,7 @@ function renderWhatsOn(){
   $$('#whatson [data-f]').forEach(b=>b.onclick=()=>{ woFilter=b.dataset.f; renderWhatsOn(); });
 }
 function toggleWhatsOn(on){ const el=$('#whatson'); on=on??!el.classList.contains('show'); if(on) renderWhatsOn(); el.classList.toggle('show',on); $('#whatsonBtn').classList.toggle('hot',on); }
-$('#whatsonBtn').onclick=()=>toggleWhatsOn();
+$('#whatsonBtn').onclick=()=>toggleStrip();
 
 /* ================= loop ================= */
 const clock=new THREE.Clock(),tmp=new V3(),tmp2=new V3(),ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2,colA=new THREE.Color(),colB=new THREE.Color(); let fwTimer=0;
@@ -1261,9 +1382,10 @@ function tick(){
   if(state.health.store==='none') toast('Storage isn’t configured on this deployment yet. See the README.');
   const q=new URLSearchParams(location.search);
   if(q.get('checkout')==='success'&&q.get('session_id')){
-    try{ const r=await api('GET','/checkout/verify?token='+TOKEN+'&session_id='+encodeURIComponent(q.get('session_id'))); if(r.pass) toast('Event Pass added: this plan now has the AI organizer and room for 12 (Stripe test mode).'); else if(r.plus) toast(`${TIER_NAME[r.tier]||'Plus'} is unlocked (Stripe test mode). Thank you!`); }catch(e){ toast(e.message); }
+    try{ const r=await api('GET','/checkout/verify?token='+TOKEN+'&session_id='+encodeURIComponent(q.get('session_id'))); if(r.change) toast('Plan change added. Click “Change plan” on the ticket to reopen it.'); else if(r.pass) toast('Event Pass added: this plan now has the AI organizer and room for 12 (Stripe test mode).'); else if(r.plus) toast(`${TIER_NAME[r.tier]||'Plus'} is unlocked (Stripe test mode). Thank you!`); }catch(e){ toast(e.message); }
   } else if(q.get('checkout')==='cancelled') toast('Checkout cancelled. Nothing was charged.');
   await refreshMe();
+  loadVstats(); loadGoogle(); if(!/^\/p\//.test(location.pathname)) loadLive(todayISO());
   const m=location.pathname.match(/^\/p\/([a-z0-9]+)/);
   if(m){
     try{

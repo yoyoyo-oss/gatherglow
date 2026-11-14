@@ -15,6 +15,12 @@ Routes (all JSON):
   POST /api/plans/<id>/ai                  Plus: Claude organizes   {token, context}
   POST /api/checkout                       Stripe Checkout (test mode) {token, plan, planId}
   GET  /api/checkout/verify?session_id=&token=  confirm payment and unlock Plus
+  GET  /api/live?date=                     live NYC events for a day (Ticketmaster Discovery API, cached 30 min)
+  GET  /api/venues/stats                   GatherGlow ratings and "most wished" rank for every place
+  GET  /api/venues/<id>?name=&address=     reviews for one place (+ Google rating when a key is set)
+  POST /api/reviews                        rate a place you went to   {token, planId, venueId, stars, text}
+  POST /api/plans/<id>/reopen              organizer reopens a locked/booked plan to change it {token}
+  POST /api/plans/<id>/out                 "I can't make it" / "I'm back" {token, out}
 
 Identity: no sign-up. Each browser keeps a random token; a plan stores which member
 belongs to which token. The organizer is whoever created the plan.
@@ -34,6 +40,8 @@ from http.server import BaseHTTPRequestHandler
 PLANS = {
     "pass":     {"name": "GatherGlow Event Pass", "cents": 799,   "interval": None,    "tier": "pass",   "seats": 0,
                  "desc": "One plan: AI organizer and up to 12 people, one-time"},
+    "change":   {"name": "GatherGlow plan change", "cents": 299,  "interval": None,    "tier": "change", "seats": 0,
+                 "desc": "Reopen one booked plan to change it"},
     "plus_m":   {"name": "GatherGlow Plus",       "cents": 999,   "interval": "month", "tier": "plus",   "seats": 1,
                  "desc": "Unlimited group plans and the AI organizer for one organizer"},
     "plus_y":   {"name": "GatherGlow Plus (yearly)", "cents": 7900, "interval": "year", "tier": "plus",  "seats": 1,
@@ -219,6 +227,53 @@ def index_add(token, pid):
 PROFILE_KEYS = ("name", "color", "foods", "vibes", "veg", "u21", "budget", "schedule")
 
 
+def add_note(p, kind, text):
+    """Plan notifications everyone in the plan sees (price changes, delays, people dropping out, edits)."""
+    notes = p.setdefault("notes", [])
+    notes.insert(0, {"id": secrets.token_hex(4), "at": int(time.time() * 1000), "kind": kind, "text": str(text)[:240]})
+    del notes[40:]
+
+
+def bump_wishes(before, after):
+    """Count how many people wished for each place (real usage data, sample members excluded)."""
+    added = set(after) - set(before); removed = set(before) - set(after)
+    if not added and not removed:
+        return
+    st = store.get("vstats") or {}
+    for v in added:
+        st.setdefault(v, {"w": 0, "rs": 0, "rc": 0})["w"] += 1
+    for v in removed:
+        if v in st:
+            st[v]["w"] = max(0, st[v]["w"] - 1)
+    store.put("vstats", st)
+
+
+EXT_FIELDS = {"name": 120, "category": 40, "neighborhood": 80, "address": 160, "booking": 60, "price_note": 200, "image": 400, "source_url": 400, "status": 20}
+
+
+def clean_ext_venue(v):
+    """A live event (Ticketmaster) snapshot stored with a plan, so everyone sees the same stop."""
+    if not isinstance(v, dict) or not re.match(r"^tm-[a-z0-9]{2,37}$", str(v.get("id", ""))):
+        return None
+    out = {"id": v["id"], "type": "activity", "live": True}
+    for k, n in EXT_FIELDS.items():
+        out[k] = str(v.get(k, ""))[:n]
+    for k in ("image", "source_url"):
+        if out[k] and not re.match(r"^https://", out[k]):
+            out[k] = ""
+    try:
+        out["lat"] = float(v.get("lat")); out["lng"] = float(v.get("lng"))
+        out["price_pp"] = max(0.0, min(float(v.get("price_pp") or 0), 5000.0))
+        out["duration_min"] = int(v.get("duration_min") or 150)
+    except (TypeError, ValueError):
+        return None
+    out["dates"] = [d for d in (v.get("dates") or []) if re.match(r"^\d{4}-\d{2}-\d{2}$", str(d))][:2]
+    out["starts"] = [t for t in (v.get("starts") or []) if re.match(r"^\d{2}:\d{2}$", str(t))][:2]
+    out["tags"] = [t for t in (v.get("tags") or []) if t in VIBES][:3]
+    out["price_basis"] = "listed"
+    return out
+
+
 def public_plan(p, token):
     """What one person may see: everything except other people's budgets and tokens."""
     mine = member_for(p, token)
@@ -237,6 +292,8 @@ def public_plan(p, token):
         "members": members, "groupCap": min(budgets) if budgets else None,
         "votes": p.get("votes", {}), "comments": p.get("comments", {}), "suggested": p.get("suggested", []),
         "ai": p.get("ai"), "locked": p.get("locked"), "booked": p.get("booked"),
+        "notes": p.get("notes", [])[:20], "extVenues": p.get("extVenues", {}), "history": len(p.get("history", [])),
+        "changeCredits": p.get("changeCredits", 0), "changesUsed": p.get("changesUsed", 0),
         "organizerPlus": plan_unlocked(p), "pass": bool(p.get("pass")),
         "organizerTier": own_tier(p["organizerToken"]),
         "maxMembers": MAX_MEMBERS if plan_unlocked(p) else FREE_MAX_MEMBERS,
@@ -329,7 +386,8 @@ def h_health(q, b):
     return {"store": store.kind, "stripe": bool(os.environ.get("STRIPE_SECRET_KEY")),
             "stripeMode": "test" if os.environ.get("STRIPE_SECRET_KEY", "").startswith("sk_test_") else ("live" if os.environ.get("STRIPE_SECRET_KEY") else None),
             "ai": bool(os.environ.get("ANTHROPIC_API_KEY")), "price": PRICE_LABEL, "freePlansPerMonth": FREE_PLANS_PER_MONTH,
-            "plans": {k: {"cents": v["cents"], "interval": v["interval"], "tier": v["tier"], "seats": v["seats"]} for k, v in PLANS.items()}}
+            "plans": {k: {"cents": v["cents"], "interval": v["interval"], "tier": v["tier"], "seats": v["seats"]} for k, v in PLANS.items()},
+            "liveEvents": bool(os.environ.get("TICKETMASTER_API_KEY")), "googleRatings": bool(os.environ.get("GOOGLE_PLACES_API_KEY"))}
 
 
 def h_me(q, b):
@@ -388,21 +446,32 @@ def h_create(q, b):
 
 def h_get(pid, q, b):
     t = check_token(q.get("token"))
-    return {"plan": public_plan(load_plan(pid), t)}
+    p = load_plan(pid)
+    try:
+        if refresh_live(p):
+            save_plan(p)
+    except Exception:
+        pass  # live checks must never break reading a plan
+    return {"plan": public_plan(p, t)}
 
 
 def h_me_put(pid, q, b):
     t = check_token(b.get("token"))
     p = load_plan(pid)
-    if p.get("booked"):
-        raise ApiError(409, "booked", "This plan is already booked.")
     mine = member_for(p, t)
+    if (p.get("booked") or p.get("locked")) and not mine:
+        raise ApiError(409, "booked", "This plan is already locked. Ask the organizer to reopen it.")
     if not mine and len(p["members"]) >= MAX_MEMBERS:
         raise ApiError(409, "full", "This plan is full.")
     if not mine and len(p["members"]) >= FREE_MAX_MEMBERS and not plan_unlocked(p):
         raise ApiError(402, "group_full_free", "Free plans fit up to %d people. The organizer can add an Event Pass or upgrade for up to %d." % (FREE_MAX_MEMBERS, MAX_MEMBERS))
     m = clean_member(b.get("member"), existing_id=mine["id"] if mine else None)
     m["token"] = t
+    if mine and mine.get("out"):
+        m["out"] = True
+    if mine and (p.get("booked") or p.get("locked")) and mine.get("schedule") != m["schedule"]:
+        add_note(p, "member", "%s changed their times after the plan was %s. Check that it still works." % (m["name"], "booked" if p.get("booked") else "locked"))
+    bump_wishes(mine.get("wishes", []) if mine else [], m["wishes"])
     if mine:
         p["members"][p["members"].index(mine)] = m
     else:
@@ -482,6 +551,12 @@ def h_lock(pid, q, b):
         p["locked"] = None
     else:
         p["locked"] = clean_option(b.get("option"))
+        ext = p.setdefault("extVenues", {})
+        for v in (b.get("venues") or [])[:5]:
+            cv = clean_ext_venue(v)
+            if cv and any(s["id"] == cv["id"] for s in p["locked"]["stops"]):
+                ext[cv["id"]] = cv
+                p.setdefault("live", {})[cv["id"]] = {"price": cv["price_pp"], "status": cv["status"], "starts": cv["starts"], "dates": cv["dates"]}
     save_plan(p)
     return {"plan": public_plan(p, t)}
 
@@ -497,6 +572,242 @@ def h_book(pid, q, b):
                    "codes": [{"id": s["id"], "code": "No booking needed" if s["id"] in free else "PT-" + secrets.token_hex(3).upper()} for s in p["locked"]["stops"]]}
     save_plan(p)
     return {"plan": public_plan(p, t)}
+
+
+def h_reopen(pid, q, b):
+    """Change a locked or booked plan. Free with Plus/Family/Crew; an Event Pass includes one change;
+    otherwise a $2.99 plan-change purchase (Stripe) adds one credit."""
+    t = check_token(b.get("token"))
+    p = load_plan(pid)
+    require_org(p, t)
+    if not (p.get("locked") or p.get("booked")):
+        raise ApiError(400, "not_locked", "This plan isn't locked yet. You can change it freely.")
+    tier = own_tier(t)
+    if tier in ("plus", "family", "crew"):
+        how = "included in " + tier.capitalize()
+    elif p.get("pass") and p.get("changesUsed", 0) < 1:
+        how = "the Event Pass change"
+    elif p.get("changeCredits", 0) > 0:
+        p["changeCredits"] -= 1
+        how = "a plan change"
+    else:
+        raise ApiError(402, "change_required", "Changing a booked plan is free with Plus, Family or Crew, or $2.99 for this plan.")
+    p["changesUsed"] = p.get("changesUsed", 0) + 1
+    p.setdefault("history", []).append({"locked": p.get("locked"), "booked": p.get("booked"), "at": int(time.time() * 1000)})
+    del p["history"][:-10]
+    was_booked = bool(p.get("booked"))
+    p["locked"] = None
+    p["booked"] = None
+    who = (member_for(p, t) or {}).get("name", "The organizer")
+    add_note(p, "change", "%s reopened the plan to change it (%s).%s Vote again on the new options." % (
+        who, how, " The earlier booking codes were released (simulated)." if was_booked else ""))
+    save_plan(p)
+    return {"plan": public_plan(p, t)}
+
+
+def h_out(pid, q, b):
+    t = check_token(b.get("token"))
+    p = load_plan(pid)
+    mine = member_for(p, t)
+    if not mine:
+        raise ApiError(403, "join_first", "Join the plan first.")
+    out = bool(b.get("out"))
+    if bool(mine.get("out")) != out:
+        mine["out"] = out
+        add_note(p, "member", ("%s can't make it anymore. The organizer can change the plan." if out else "%s can make it again.") % mine["name"])
+        save_plan(p)
+    return {"plan": public_plan(p, t)}
+
+
+# ---- ratings and reviews (real GatherGlow users) + optional Google Places
+def h_vstats(q, b):
+    st = store.get("vstats") or {}
+    ranked = sorted([k for k, v in st.items() if v.get("w", 0) > 0], key=lambda k: -st[k]["w"])
+    rank = {k: i + 1 for i, k in enumerate(ranked)}
+    return {"stats": {k: {"wishes": v.get("w", 0), "rank": rank.get(k), "avg": round(v["rs"] / v["rc"], 2) if v.get("rc") else None,
+                          "count": v.get("rc", 0)} for k, v in st.items()}, "ranked": len(ranked)}
+
+
+def google_place(vid, name, address):
+    key = os.environ.get("GOOGLE_PLACES_API_KEY")
+    if not key or not name:
+        return None
+    ck = "gp:" + vid
+    c = store.get(ck)
+    if c and c.get("at", 0) > time.time() - 7 * 86400:
+        return c.get("data")
+    req = urllib.request.Request("https://places.googleapis.com/v1/places:searchText", method="POST",
+                                 data=json.dumps({"textQuery": (name + ", " + address)[:200], "maxResultCount": 1}).encode(),
+                                 headers={"Content-Type": "application/json", "X-Goog-Api-Key": key,
+                                          "X-Goog-FieldMask": "places.displayName,places.rating,places.userRatingCount,places.googleMapsUri,places.reviews"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            j = json.loads(r.read())
+    except Exception:
+        return None
+    pl = (j.get("places") or [None])[0]
+    data = None
+    if pl:
+        data = {"rating": pl.get("rating"), "count": pl.get("userRatingCount"), "url": pl.get("googleMapsUri"),
+                "reviews": [{"author": (rv.get("authorAttribution") or {}).get("displayName", "Google user"),
+                             "rating": rv.get("rating"), "when": rv.get("relativePublishTimeDescription", ""),
+                             "text": ((rv.get("text") or {}).get("text") or "")[:400]} for rv in (pl.get("reviews") or [])[:3]]}
+    store.put(ck, {"at": time.time(), "data": data})
+    return data
+
+
+def h_venue(vid, q, b):
+    if not re.match(r"^[a-z0-9-]{2,40}$", vid):
+        raise ApiError(404, "not_found", "Unknown place.")
+    st = (store.get("vstats") or {}).get(vid, {})
+    revs = (store.get("rev:" + vid) or {}).get("items", [])[:10]
+    g = google_place(vid, str(q.get("name", ""))[:120], str(q.get("address", ""))[:160])
+    return {"avg": round(st["rs"] / st["rc"], 2) if st.get("rc") else None, "count": st.get("rc", 0), "wishes": st.get("w", 0),
+            "reviews": [{k: r[k] for k in ("name", "stars", "text", "at")} for r in revs], "google": g,
+            "googleConfigured": bool(os.environ.get("GOOGLE_PLACES_API_KEY"))}
+
+
+def h_review(q, b):
+    t = check_token(b.get("token"))
+    p = load_plan(str(b.get("planId", "")))
+    mine = member_for(p, t)
+    vid = str(b.get("venueId", ""))
+    if not mine:
+        raise ApiError(403, "join_first", "Join the plan first.")
+    if not p.get("booked") or not any(s["id"] == vid for s in p["locked"]["stops"]):
+        raise ApiError(400, "not_on_plan", "You can rate places from a booked plan you're part of.")
+    try:
+        stars = int(b.get("stars"))
+    except (TypeError, ValueError):
+        stars = 0
+    if not 1 <= stars <= 5:
+        raise ApiError(400, "bad_stars", "Pick 1 to 5 stars.")
+    text = str(b.get("text", "")).strip()[:280]
+    rk = "rev:" + vid
+    data = store.get(rk) or {"items": []}
+    prev = next((r for r in data["items"] if r.get("by") == t), None)
+    data["items"] = [r for r in data["items"] if r.get("by") != t]
+    data["items"].insert(0, {"by": t, "name": mine["name"], "stars": stars, "text": text, "at": int(time.time() * 1000), "plan": p["id"]})
+    del data["items"][50:]
+    store.put(rk, data)
+    st = store.get("vstats") or {}
+    e = st.setdefault(vid, {"w": 0, "rs": 0, "rc": 0})
+    if prev:
+        e["rs"] -= prev["stars"]
+    else:
+        e["rc"] += 1
+    e["rs"] += stars
+    store.put("vstats", st)
+    return {"ok": True, "avg": round(e["rs"] / e["rc"], 2), "count": e["rc"]}
+
+
+# ---- live events: Ticketmaster Discovery API
+def tm_get(path, params):
+    key = os.environ.get("TICKETMASTER_API_KEY")
+    if not key:
+        return None
+    params = dict(params, apikey=key)
+    with urllib.request.urlopen("https://app.ticketmaster.com/discovery/v2/" + path + "?" + urllib.parse.urlencode(params), timeout=10) as r:
+        return json.loads(r.read())
+
+
+def tm_norm(e):
+    tid = str(e.get("id", ""))
+    vid = "tm-" + re.sub(r"[^a-z0-9]", "", tid.lower())[:37]
+    ven = ((e.get("_embedded") or {}).get("venues") or [{}])[0]
+    loc = ven.get("location") or {}
+    st = (e.get("dates") or {}).get("start") or {}
+    pr = (e.get("priceRanges") or [{}])[0]
+    imgs = sorted([i for i in e.get("images") or [] if i.get("ratio") in ("16_9", "3_2", "4_3")], key=lambda i: -(i.get("width") or 0))
+    img = next((i["url"] for i in imgs if (i.get("width") or 0) <= 1300), imgs[0]["url"] if imgs else "")
+    cl = ((e.get("classifications") or [{}])[0])
+    seg = ((cl.get("segment") or {}).get("name") or "")
+    genre = ((cl.get("genre") or {}).get("name") or "")
+    tags = ["music", "nightlife"] if seg == "Music" else ["comedy"] if genre == "Comedy" else ["shows"]
+    try:
+        lat, lng = float(loc.get("latitude")), float(loc.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+    t = (st.get("localTime") or "")[:5]
+    pmin, pmax = pr.get("min"), pr.get("max")
+    return {"id": vid, "tmId": tid, "type": "activity", "live": True, "name": str(e.get("name", ""))[:120],
+            "category": (genre if genre and genre != "Undefined" else seg or "Live event")[:40], "tags": tags,
+            "neighborhood": str(ven.get("name", ""))[:80],
+            "address": ", ".join(x for x in [ven.get("name"), (ven.get("address") or {}).get("line1"), (ven.get("city") or {}).get("name")] if x)[:160],
+            "lat": lat, "lng": lng, "price_pp": float(pmin) if pmin else 0.0, "price_max": float(pmax) if pmax else None,
+            "price_basis": "listed", "price_note": ("Ticketmaster price range $%g–$%g" % (pmin, pmax or pmin)) if pmin else "Price shown on Ticketmaster",
+            "dates": [st.get("localDate")] if st.get("localDate") else [], "starts": [t] if t else [], "duration_min": 150,
+            "status": str(((e.get("dates") or {}).get("status") or {}).get("code", "onsale"))[:20],
+            "booking": "Ticketmaster", "source_url": e.get("url", ""), "image": img}
+
+
+def h_live(q, b):
+    date = str(q.get("date", ""))
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        raise ApiError(400, "bad_date", "Pick a date.")
+    if not os.environ.get("TICKETMASTER_API_KEY"):
+        return {"configured": False, "events": []}
+    ck = "live:" + date
+    c = store.get(ck)
+    if c and c.get("at", 0) > time.time() - 1800:
+        return {"configured": True, "events": c["events"], "fetchedAt": c["at"], "source": "Ticketmaster Discovery API"}
+    try:
+        j = tm_get("events.json", {"city": "New York", "countryCode": "US", "size": 40, "sort": "relevance,desc",
+                                   "localStartDateTime": date + "T00:00:00," + date + "T23:59:59"}) or {}
+    except Exception:
+        return {"configured": True, "events": (c or {}).get("events", []), "stale": True}
+    evs = [x for x in (tm_norm(e) for e in ((j.get("_embedded") or {}).get("events") or [])) if x and x["starts"]]
+    seen, uniq = set(), []
+    for e in evs:
+        k = (e["name"], e["starts"][0])
+        if k not in seen:
+            seen.add(k); uniq.append(e)
+    store.put(ck, {"at": time.time(), "events": uniq[:24]})
+    tmmap = store.get("tmmap") or {}
+    tmmap.update({e["id"]: e["tmId"] for e in uniq})
+    if len(tmmap) > 4000:
+        tmmap = dict(list(tmmap.items())[-3000:])
+    store.put("tmmap", tmmap)
+    return {"configured": True, "events": uniq[:24], "fetchedAt": time.time(), "source": "Ticketmaster Discovery API"}
+
+
+def refresh_live(p):
+    """Re-check live events in a locked plan (at most every 15 minutes). Adds a note when the price,
+    time, date or status changed on Ticketmaster. Returns True when the plan changed."""
+    lk = p.get("locked")
+    if not lk or not os.environ.get("TICKETMASTER_API_KEY"):
+        return False
+    ids = [s["id"] for s in lk["stops"] if s["id"].startswith("tm-")]
+    if not ids or p.get("liveCheckedAt", 0) > time.time() - 900:
+        return False
+    p["liveCheckedAt"] = time.time()
+    tmmap = store.get("tmmap") or {}
+    live = p.setdefault("live", {})
+    for vid in ids:
+        tid = tmmap.get(vid)
+        if not tid:
+            continue
+        try:
+            n = tm_norm(tm_get("events/" + urllib.parse.quote(tid) + ".json", {}) or {})
+        except Exception:
+            continue
+        if not n:
+            continue
+        old = live.get(vid) or {}
+        nm = n["name"]
+        if old.get("price") is not None and n["price_pp"] and abs(n["price_pp"] - old["price"]) >= 0.5:
+            add_note(p, "price", "%s: price changed from $%g to $%g on Ticketmaster." % (nm, old["price"], n["price_pp"]))
+        if old.get("status") and n["status"] != old["status"]:
+            add_note(p, "status", "%s is now %s on Ticketmaster." % (nm, n["status"].upper()))
+        if old.get("starts") and n["starts"] and n["starts"] != old["starts"]:
+            add_note(p, "time", "%s: start time changed to %s." % (nm, n["starts"][0]))
+        if old.get("dates") and n["dates"] and n["dates"] != old["dates"]:
+            add_note(p, "time", "%s moved to %s." % (nm, n["dates"][0]))
+        live[vid] = {"price": n["price_pp"] or old.get("price"), "status": n["status"], "starts": n["starts"], "dates": n["dates"]}
+        ext = p.setdefault("extVenues", {})
+        if vid in ext:
+            ext[vid].update({"price_pp": n["price_pp"] or ext[vid]["price_pp"], "status": n["status"], "price_note": n["price_note"]})
+    return True
 
 
 # ------------------------------------------------------------------ AI organizer (Claude)
@@ -590,9 +901,9 @@ def h_checkout(q, b, origin):
     if not plan:
         raise ApiError(400, "bad_plan", "Unknown plan.")
     pid = b.get("planId") if ID_RE.match(str(b.get("planId", ""))) else ""
-    if key == "pass":
+    if key in ("pass", "change"):
         if not pid:
-            raise ApiError(400, "pass_needs_plan", "An Event Pass belongs to one plan. Open the plan first.")
+            raise ApiError(400, "pass_needs_plan", "This purchase belongs to one plan. Open the plan first.")
         p = load_plan(pid)
         if not member_for(p, t) and p["organizerToken"] != t:
             raise ApiError(403, "join_first", "Join the plan first.")
@@ -629,6 +940,14 @@ def h_verify(q, b):
     md = s.get("metadata", {})
     key = md.get("plan") or "plus_m"
     plan = PLANS.get(key, PLANS["plus_m"])
+    if key == "change":
+        p = load_plan(md.get("planId", ""))
+        done = p.setdefault("changeSessions", [])
+        if sid not in done:
+            done.append(sid)
+            p["changeCredits"] = p.get("changeCredits", 0) + 1
+            save_plan(p)
+        return {"plus": False, "change": True, "planId": p["id"], "plan": key}
     if key == "pass":
         p = load_plan(md.get("planId", ""))
         if not p.get("pass"):
@@ -656,10 +975,18 @@ def route(method, path, query, body, origin):
         sub = parts[2] if len(parts) > 2 else ""
         table = {("GET", ""): h_get, ("PUT", "me"): h_me_put, ("POST", "remove"): h_remove, ("POST", "vote"): h_vote,
                  ("POST", "comment"): h_comment, ("POST", "suggest"): h_suggest, ("POST", "lock"): h_lock,
-                 ("POST", "book"): h_book, ("POST", "ai"): h_ai}
+                 ("POST", "book"): h_book, ("POST", "ai"): h_ai, ("POST", "reopen"): h_reopen, ("POST", "out"): h_out}
         fn = table.get((method, sub))
         if fn:
             return fn(pid, query, body)
+    if method == "GET" and parts == ["live"]:
+        return h_live(query, body)
+    if method == "GET" and parts == ["venues", "stats"]:
+        return h_vstats(query, body)
+    if method == "GET" and parts[:1] == ["venues"] and len(parts) == 2:
+        return h_venue(parts[1], query, body)
+    if method == "POST" and parts == ["reviews"]:
+        return h_review(query, body)
     if method == "POST" and parts == ["checkout"]:
         return h_checkout(query, body, origin)
     if method == "GET" and parts == ["checkout", "verify"]:

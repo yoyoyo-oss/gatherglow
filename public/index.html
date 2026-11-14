@@ -567,6 +567,45 @@ body.fit5 .today{bottom:10px}
 .tier li{padding-left:16px;position:relative;margin-bottom:4px}
 .tier li:before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:700}
 .tier .btn{width:100%}
+
+/* ---- poster cards, ratings, buy links ---- */
+.wgrid .tcard{width:auto;cursor:pointer}
+.wgrid .tcard .cover{aspect-ratio:3/4}
+.wgrid .tcard .cap b{font-size:14.5px}
+.tcard .cap .rate{display:block;margin-top:5px;font-size:11.5px;font-weight:700;color:#ffd27a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcard .cap .rate i{font-style:normal;opacity:.85;font-weight:500}
+.tcard .cap .buy{display:inline-flex;margin-top:7px;background:#fff;color:#17171c;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:99px;text-decoration:none;pointer-events:auto}
+.tcard .cap .buy:hover{background:var(--accent);color:#fff}
+.tcard .pills span.live{background:#d1283d}
+.revbox{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.revbox h4{margin:0 0 8px}
+.rsum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.rsum span{background:var(--chip);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700}
+.rsum small{font-weight:500;color:var(--muted)}
+.rv{padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.45}
+.rv .st{color:#e2a72d;letter-spacing:1px}
+.rv small{color:var(--muted)}
+.notes{margin-top:12px;display:grid;gap:6px}
+.notes div{background:var(--warn-bg);border-radius:12px;padding:8px 12px;font-size:13px}
+.notes div.price,.notes div.status,.notes div.time{background:var(--over-bg)}
+.notes small{color:var(--muted);margin-right:6px}
+.rateit{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed var(--line)}
+.rateit b{flex:1 1 140px;font-size:13px}
+.rateit .stars button{border:0;background:none;font-size:21px;color:#d6d3cc;cursor:pointer;padding:0 1px;line-height:1}
+.rateit .stars button.on{color:#e2a72d}
+.rateit input{flex:1 1 160px;min-width:0;font-size:12.5px;padding:6px 9px;border:1px solid var(--line);border-radius:9px}
+.bcount{display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;margin-left:6px;padding:0 5px}
+.alist .al{padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.alist .al small{display:block;color:var(--muted);font-size:12px}
+.outtag{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:var(--over);background:var(--over-bg);padding:1px 7px;border-radius:99px}
+body.stripopen .today{opacity:1;transform:none;pointer-events:auto;z-index:35}
+body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);width:auto;bottom:14px}
+.today .tlink{white-space:nowrap;border:1px solid rgba(23,23,28,.12);background:rgba(255,255,255,.78);border-radius:99px;padding:0 14px;height:42px;font-weight:600;cursor:pointer;color:var(--ink)}
+#whatsonBtn.hot{background:var(--ink);color:#fff}
+.cover img{z-index:2}
+.cover::after{z-index:3}
+.tcard .pills{flex-wrap:nowrap;overflow:hidden}
+.tcard .pills span{flex:none}
 </style>
 </head>
 <body>
@@ -589,6 +628,7 @@ body.fit5 .today{bottom:10px}
   <span class="badge aib" id="plusBadge" hidden>Plus</span>
   <button class="ghost-btn" id="myPlansBtn" type="button" hidden>My plans</button>
   <button class="ghost-btn" id="judgeBtn" type="button">For judges</button>
+  <button class="ghost-btn" id="alertBtn" type="button" hidden>Alerts<span class="bcount" id="alertCount" hidden></span></button>
   <button class="ghost-btn" id="howBtn" type="button">How it works</button>
   <button class="ghost-btn" id="pricingBtn" type="button">Pricing</button>
   <button class="ghost-btn" id="whatsonBtn" type="button">What’s on</button>
@@ -752,7 +792,7 @@ body.fit5 .today{bottom:10px}
     <p class="lede" id="payReason" style="margin-top:6px"></p>
     <div class="cycle" id="payCycle" role="group" aria-label="Billing period"><button type="button" data-c="m" class="on">Monthly</button><button type="button" data-c="y">Yearly <span>save 34%</span></button></div>
     <div class="tiers" id="payTiers"></div>
-    <p class="hint" style="margin-top:12px"><b>Free</b>: 1 group plan a month, up to 6 people, no AI. People you invite never pay. Cancel anytime.</p>
+    <p class="hint" style="margin-top:12px"><b>Free</b>: 1 group plan a month, up to 6 people, no AI. People you invite never pay. Cancel anytime. <b>Changing a booked plan</b>: free with Plus, Family or Crew; one free change with an Event Pass; otherwise $2.99 per change.</p>
     <p class="hint" id="payTest" hidden>Stripe test mode: pay with card 4242 4242 4242 4242, any future date and any CVC. Nothing is charged.</p>
     <p class="hint" id="payOff" hidden>Payments aren’t configured on this deployment yet.</p>
     <div class="mfoot"><span class="hint" id="payNow"></span><button class="btn line sm" id="payClose" type="button">Not now</button></div>
@@ -788,12 +828,21 @@ body.fit5 .today{bottom:10px}
     <div class="mfoot"><button class="btn line sm" id="myRemind" type="button">Remind me in 4 weeks</button><div style="display:flex;gap:8px"><button class="btn line sm" id="myClose" type="button">Close</button><button class="btn primary sm" id="myNew" type="button">Plan the next one</button></div></div>
   </div>
 </div>
+<div class="modal" id="alertModal" role="dialog" aria-modal="true" aria-label="Plan alerts">
+  <div class="mcard" style="width:min(520px,100%);max-height:88vh;overflow:auto">
+    <p class="kicker acc">Live updates for this plan</p>
+    <h2 style="margin-top:6px">Alerts</h2>
+    <p class="hint">Price changes, new times, cancellations (checked on Ticketmaster every 15 minutes), people who can’t make it, and plan changes.</p>
+    <div class="alist" id="alertList"></div>
+    <div class="mfoot"><button class="btn line sm" id="alertPush" type="button">Turn on browser alerts</button><button class="btn dark sm" id="alertClose" type="button">Done</button></div>
+  </div>
+</div>
 <div class="hintbar" id="hintbar">Drag to look around · scroll to zoom</div>
 <div class="mapsrc">Manhattan: 30,000+ real buildings · NYC Open Data</div>
 <div id="tip"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
-<script>window.PHOTO_EMBED={};</script>
+<script src="/js/photos.js"></script>
 <script src="/js/venues.js"></script>
 <script src="/js/manhattan.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

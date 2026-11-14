@@ -1,5 +1,7 @@
 # GatherGlow
 
+**Live product: https://gatherglow-two.vercel.app** (no sign-up, no login)  ·  Source: this repository (public)
+
 **For the friend who always ends up organizing.** Everyone in the group adds their day (work, study, busy time), what they'd love to do and a private budget. GatherGlow finds the hours you all share and builds three plans across real New York City venues and events, priced with NYC tax and tip, inside everyone's budget. The group votes, the organizer locks a plan and books.
 
 - **Who pays:** consumers only. Free: 1 group plan a month (up to 6 people, no AI). **Event Pass** $7.99 one-time (one plan, AI, up to 12). **Plus** $9.99/month or $79/year (one organizer). **Family** $19.99/month or $159/year (up to 6 in a household). **Crew** $24.99/month or $199/year (a friend group of up to 8; everyone can start plans and use AI). People you invite never pay.
@@ -7,7 +9,7 @@
 
 ## For judges (about 5 minutes)
 
-1. Open the deployed link. Click **Start planning** (or **Try with a sample group** to start with 3 sample friends). No sign-up.
+1. Open **https://gatherglow-two.vercel.app**. Click **Start planning** (or **Try with a sample group** to start with 3 sample friends). No sign-up.
 2. Make your planet: name, food, interests, busy times (typed into a popup), wishes, private budget.
 3. In **Your crew**, click **Open as a second person ↗**. A new tab opens as a different person. Join with different times and a different budget.
 4. The first tab updates live. Click **Bring everyone together**, drag the planets in, and see three plans drawn on a 3D Manhattan.

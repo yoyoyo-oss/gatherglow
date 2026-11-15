@@ -363,15 +363,15 @@ function addEnt(p,fromPos){ const obj=buildPlanet(p); obj.scale.setScalar(PS); s
 function rebuildEnt(e){ const pos=e.obj.position.clone(),sc=e.obj.scale.x,vis=e.obj.visible; scene.remove(e.obj); disposeObj(e.obj); e.obj=buildPlanet(e.p); e.obj.position.copy(pos); e.obj.scale.setScalar(sc); e.obj.visible=vis; scene.add(e.obj); }
 function refreshLabels(){ ents.forEach(e=>e.label.innerHTML=labelHtml(e.p)); }
 /* welcome planets: four sample friends with riders orbit the city on the start screens until real people join */
-const WELCOME=[{id:'w-aru',name:'Aru',color:'#3f5873',vibes:['art','views']},{id:'w-mira',name:'Mira',color:'#c2a46e',vibes:['music','comedy']},
-  {id:'w-jun',name:'Jun',color:'#8aa596',vibes:['outdoors','holiday','free']},{id:'w-sam',name:'Sam',color:'#a87f86',vibes:['games','nightlife']}].map((p,i)=>{
+const WELCOME=[{id:'w-aru',name:'Aru',color:'#3f5873',vibes:['art','views'],tag:'Free 5–9pm',sub:'from their day'},{id:'w-mira',name:'Mira',color:'#c2a46e',vibes:['music','comedy'],tag:'Loves live music',sub:'wish list'},
+  {id:'w-jun',name:'Jun',color:'#8aa596',vibes:['outdoors','holiday','free'],tag:'Wants to be outdoors',sub:'wish list: the High Line'},{id:'w-sam',name:'Sam',color:'#a87f86',vibes:['games','nightlife'],tag:'Vegetarian',sub:'food that fits'}].map((p,i)=>{
   const obj=buildPlanet({...p,foods:[]}); obj.scale.setScalar(.001); obj.visible=false; scene.add(obj);
   const orb=orbitFor(i); orb.ang=i*1.55+.5; return {p,obj,orb,label:makeLabel('',labelHtml(p)),fade:0}; });
 function tickWelcome(dt,t,sp){
-  const on=state.step===1&&!ents.length;
-  WELCOME.forEach((w,i)=>{ w.fade+=((on?1:0)-w.fade)*Math.min(1,dt*2.5); const o=w.obj, vis=w.fade>.02; o.visible=vis;
+  const on=state.step===1&&!ents.length, rich=on&&!intro;
+  WELCOME.forEach((w,i)=>{ if(w.rich!==rich){ w.rich=rich; w.label.classList.toggle('wtag',rich); w.label.innerHTML=rich?`<i style="background:${w.p.color}"></i><span><b>${esc(w.p.name)}</b> · ${esc(w.p.tag)}<small>${esc(w.p.sub)}</small></span>`:labelHtml(w.p); } w.fade+=((on?1:0)-w.fade)*Math.min(1,dt*2.5); const o=w.obj, vis=w.fade>.02; o.visible=vis;
     if(!vis){ w.label.style.opacity=0; return; }
-    w.orb.ang+=dt*w.orb.sp*.55*sp; o.position.copy(orbitPos(w.orb)); o.position.y+=Math.sin(t*1.1+i)*.12; o.scale.setScalar(PS*w.fade);
+    w.orb.ang+=dt*w.orb.sp*.55*sp; o.position.copy(orbitPos(w.orb)); o.position.y+=Math.sin(t*1.1+i)*.12; w.big=(w.big||1)+((rich?1.5:1)-(w.big||1))*Math.min(1,dt*2); o.scale.setScalar(PS*w.fade*w.big);
     const ud=o.userData; ud.spin.rotation.y+=dt*.25*sp;
     ud.moons.forEach(m=>{ const a=t*m.sp*sp+m.ph; m.o.position.set(Math.cos(a)*m.r,Math.sin(a)*m.r*m.tilt,Math.sin(a)*m.r); });
     if(ud.rider) ud.rider.userData.arm.rotation.z=-.55+Math.sin(t*3.2+ud.rider.userData.ph)*.38;

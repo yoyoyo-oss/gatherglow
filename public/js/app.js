@@ -362,6 +362,21 @@ function refreshPersonOrbits(){ while(personOrbits.children.length){ const c=per
 function addEnt(p,fromPos){ const obj=buildPlanet(p); obj.scale.setScalar(PS); scene.add(obj); const e={p,obj,orb:orbitFor(ents.length),mode:fromPos?'fly':'orbit',t:0,from:fromPos?fromPos.clone():null,hover:0,label:makeLabel('',labelHtml(p))}; obj.position.copy(fromPos||orbitPos(e.orb)); ents.push(e); refreshPersonOrbits(); return e; }
 function rebuildEnt(e){ const pos=e.obj.position.clone(),sc=e.obj.scale.x,vis=e.obj.visible; scene.remove(e.obj); disposeObj(e.obj); e.obj=buildPlanet(e.p); e.obj.position.copy(pos); e.obj.scale.setScalar(sc); e.obj.visible=vis; scene.add(e.obj); }
 function refreshLabels(){ ents.forEach(e=>e.label.innerHTML=labelHtml(e.p)); }
+/* welcome planets: four sample friends with riders orbit the city on the start screens until real people join */
+const WELCOME=[{id:'w-aru',name:'Aru',color:'#3f5873',vibes:['art','views']},{id:'w-mira',name:'Mira',color:'#c2a46e',vibes:['music','comedy']},
+  {id:'w-jun',name:'Jun',color:'#8aa596',vibes:['outdoors','holiday','free']},{id:'w-sam',name:'Sam',color:'#a87f86',vibes:['games','nightlife']}].map((p,i)=>{
+  const obj=buildPlanet({...p,foods:[]}); obj.scale.setScalar(.001); obj.visible=false; scene.add(obj);
+  const orb=orbitFor(i); orb.ang=i*1.55+.5; return {p,obj,orb,label:makeLabel('',labelHtml(p)),fade:0}; });
+function tickWelcome(dt,t,sp){
+  const on=state.step===1&&!ents.length;
+  WELCOME.forEach((w,i)=>{ w.fade+=((on?1:0)-w.fade)*Math.min(1,dt*2.5); const o=w.obj, vis=w.fade>.02; o.visible=vis;
+    if(!vis){ w.label.style.opacity=0; return; }
+    w.orb.ang+=dt*w.orb.sp*.55*sp; o.position.copy(orbitPos(w.orb)); o.position.y+=Math.sin(t*1.1+i)*.12; o.scale.setScalar(PS*w.fade);
+    const ud=o.userData; ud.spin.rotation.y+=dt*.25*sp;
+    ud.moons.forEach(m=>{ const a=t*m.sp*sp+m.ph; m.o.position.set(Math.cos(a)*m.r,Math.sin(a)*m.r*m.tilt,Math.sin(a)*m.r); });
+    if(ud.rider) ud.rider.userData.arm.rotation.z=-.55+Math.sin(t*3.2+ud.rider.userData.ph)*.38;
+    tmp2.copy(o.position); tmp2.y+=1.98*o.scale.x; w.label.style.opacity=(project(tmp2,w.label)&&w.fade>.6)?1:0; });
+}
 function removeEnt(e){ scene.remove(e.obj); disposeObj(e.obj); e.label.remove(); ents.splice(ents.indexOf(e),1); ents.forEach((x,i)=>{ const a=x.orb.ang; x.orb=orbitFor(i); x.orb.ang=a; }); refreshPersonOrbits(); }
 const PS=.72, PREVIEW_POS=new V3(0,5,0); let preview=null;
 function setPreview(p){ if(preview){ scene.remove(preview); disposeObj(preview); preview=null; } if(!p) return; preview=buildPlanet(p); preview.position.copy(PREVIEW_POS); preview.scale.setScalar(.01); preview.userData.grow=0; scene.add(preview); }
@@ -1342,7 +1357,7 @@ function tick(){
   const L=LIGHTS[state.step],k=1-Math.exp(-dt*1.5);
   hemi.color.lerp(colA.set(L.sky),k); hemi.groundColor.lerp(colB.set(L.gr),k); hemi.intensity+=(L.hi-hemi.intensity)*k; sun.intensity+=(L.si-sun.intensity)*k; sun.color.lerp(colB.set(L.sc),k); sun.position.lerp(tmp.set(L.sp[0],L.sp[1],L.sp[2]),k);
   stars.material.opacity+=((state.step===5?.8:0)-stars.material.opacity)*k; dust.material.opacity+=((state.step===5?0:state.step<=3?.5:.22)-dust.material.opacity)*k; dust.rotation.y+=dt*.01*sp;
-  personOrbits.visible=state.step<=3; core.userData.pulse*=.92;
+  personOrbits.visible=state.step<=3; core.userData.pulse*=.92; tickWelcome(dt,t,sp);
   const km=1-Math.exp(-dt*3);
   mapMix+=((state.step===4?1:0)-mapMix)*km; sphereMix+=((state.step===5?1:0)-sphereMix)*km; goldMix+=((state.step<=3?1:0)-goldMix)*(1-Math.exp(-dt*1.6));
   core.visible=sphereMix<.98; { const cs=Math.max(.001,(1-sphereMix)*(1+core.userData.pulse*.04)); core.scale.set(cs,cs*(1+.6*goldMix),cs); } core.position.y=-1.5*sphereMix;

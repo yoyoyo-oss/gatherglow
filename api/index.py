@@ -1,5 +1,4 @@
-"""GatherGlow API (one Vercel Python function; also served locally by dev_server.py).
-
+"""
 Routes (all JSON):
   GET  /api/health                         which services are configured
   GET  /api/me?token=                      Plus status, this browser's plans, stats and saved planet
@@ -36,7 +35,6 @@ import urllib.error
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
-# Consumer plans. Everyone pays as a person or household; nothing is sold to businesses.
 PLANS = {
     "pass":     {"name": "GatherGlow Event Pass", "cents": 799,   "interval": None,    "tier": "pass",   "seats": 0,
                  "desc": "One plan: AI organizer and up to 12 people, one-time"},
@@ -65,9 +63,7 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 ID_RE = re.compile(r"^[a-z0-9]{6,16}$")
 
 
-# ------------------------------------------------------------------ storage
 class Store:
-    """Key/value JSON store: Supabase table `kv` in production, a local file in development."""
 
     def __init__(self):
         self.url = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -153,7 +149,6 @@ def ent(token):
 
 
 def own_tier(token):
-    """The tier this browser paid for itself (plus, family or crew), or None."""
     e = ent(token)
     if e.get("plus") and e.get("until", 0) > time.time():
         return e.get("tier", "plus")
@@ -165,8 +160,6 @@ def is_plus(token):
 
 
 def coverage(token):
-    """Plus through someone else's Family or Crew plan: you are among the first N people
-    in a plan created by that subscriber. Returns (tier, organizer name) or (None, None)."""
     ids = (store.get("idx:" + token) or {}).get("ids", [])[:12]
     found = store.get_many("plan:" + i for i in ids)
     for pid in ids:
@@ -189,7 +182,6 @@ def has_plus(token):
 
 
 def plan_unlocked(p):
-    """A plan gets the paid features if it has an Event Pass or its organizer pays."""
     return bool(p.get("pass")) or is_plus(p["organizerToken"])
 
 
@@ -218,7 +210,6 @@ def require_org(p, token):
 
 
 def index_add(token, pid):
-    """Remember which plans this browser created or joined (newest first)."""
     k = "idx:" + token
     ids = [x for x in (store.get(k) or {}).get("ids", []) if x != pid]
     store.put(k, {"ids": ([pid] + ids)[:30]})
@@ -228,14 +219,12 @@ PROFILE_KEYS = ("name", "color", "foods", "vibes", "veg", "u21", "budget", "sche
 
 
 def add_note(p, kind, text):
-    """Plan notifications everyone in the plan sees (price changes, delays, people dropping out, edits)."""
     notes = p.setdefault("notes", [])
     notes.insert(0, {"id": secrets.token_hex(4), "at": int(time.time() * 1000), "kind": kind, "text": str(text)[:240]})
     del notes[40:]
 
 
 def bump_wishes(before, after):
-    """Count how many people wished for each place (real usage data, sample members excluded)."""
     added = set(after) - set(before); removed = set(before) - set(after)
     if not added and not removed:
         return
@@ -252,7 +241,6 @@ EXT_FIELDS = {"name": 120, "category": 40, "neighborhood": 80, "address": 160, "
 
 
 def clean_ext_venue(v):
-    """A live event (Ticketmaster) snapshot stored with a plan, so everyone sees the same stop."""
     if not isinstance(v, dict) or not re.match(r"^(tm|sg|pk)-[a-z0-9]{2,37}$", str(v.get("id", ""))):
         return None
     out = {"id": v["id"], "type": "activity", "live": True, "free": bool(v.get("free"))}
@@ -275,7 +263,6 @@ def clean_ext_venue(v):
 
 
 def public_plan(p, token):
-    """What one person may see: everything except other people's budgets and tokens."""
     mine = member_for(p, token)
     budgets = [float(m["budget"]) for m in p["members"] if isinstance(m.get("budget"), (int, float)) and m["budget"] > 0]
     members = []
@@ -300,7 +287,6 @@ def public_plan(p, token):
     }
 
 
-# ------------------------------------------------------------------ validation helpers
 FOODS = {"pizza", "tacos", "noodles", "dumplings", "deli", "burgers", "bagels", "italian", "anything"}
 VIBES = {"music", "shows", "holiday", "views", "art", "games", "comedy", "outdoors", "free", "nightlife", "anything"}
 BLOCKS = {"", "work", "study", "busy", "relax", "sleep"}
@@ -381,7 +367,6 @@ def sample_member(s):
     return m
 
 
-# ------------------------------------------------------------------ handlers
 def h_health(q, b):
     return {"store": store.kind, "stripe": bool(os.environ.get("STRIPE_SECRET_KEY")),
             "stripeMode": "test" if os.environ.get("STRIPE_SECRET_KEY", "").startswith("sk_test_") else ("live" if os.environ.get("STRIPE_SECRET_KEY") else None),
@@ -452,7 +437,7 @@ def h_get(pid, q, b):
         if refresh_live(p):
             save_plan(p)
     except Exception:
-        pass  # live checks must never break reading a plan
+        pass
     return {"plan": public_plan(p, t)}
 
 
@@ -576,8 +561,6 @@ def h_book(pid, q, b):
 
 
 def h_reopen(pid, q, b):
-    """Change a locked or booked plan. Free with Plus/Family/Crew; an Event Pass includes one change;
-    otherwise a $2.99 plan-change purchase (Stripe) adds one credit."""
     t = check_token(b.get("token"))
     p = load_plan(pid)
     require_org(p, t)
@@ -620,7 +603,6 @@ def h_out(pid, q, b):
     return {"plan": public_plan(p, t)}
 
 
-# ---- ratings and reviews (real GatherGlow users) + optional Google Places
 def h_vstats(q, b):
     st = store.get("vstats") or {}
     ranked = sorted([k for k, v in st.items() if v.get("w", 0) > 0], key=lambda k: -st[k]["w"])
@@ -702,7 +684,6 @@ def h_review(q, b):
     return {"ok": True, "avg": round(e["rs"] / e["rc"], 2), "count": e["rc"]}
 
 
-# ---- live events: NYC Parks (official feed, no key), SeatGeek and Ticketmaster (keys)
 def http_json(url, timeout=10):
     req = urllib.request.Request(url, headers={"User-Agent": "GatherGlow/1.0", "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -791,7 +772,6 @@ PARKS_SKIP = {"Exercise Classes", "Shape Up NYC", "Volunteer", "Recreation Cente
 
 
 def parks_feed():
-    """The official NYC Parks events feed (next 14 days), cached 30 minutes."""
     c = store.get("parksfeed")
     if c and c.get("at", 0) > time.time() - 1800:
         return c["items"]
@@ -900,7 +880,6 @@ def h_live(q, b):
 
 
 def live_lookup(vid, date):
-    """Fetch the current version of one live event from its source."""
     prov, raw = ((store.get("livemap") or {}).get(vid) or [None, None])
     if not prov:
         old = (store.get("tmmap") or {}).get(vid)
@@ -918,8 +897,6 @@ def live_lookup(vid, date):
 
 
 def refresh_live(p):
-    """Re-check live events in a locked plan (at most every 15 minutes). Adds a note when the price,
-    time, date or status changed at the source. Returns True when the plan changed."""
     lk = p.get("locked")
     if not lk:
         return False
@@ -958,7 +935,6 @@ def refresh_live(p):
     return True
 
 
-# ------------------------------------------------------------------ AI organizer (Claude)
 AI_INSTRUCTIONS = """You are the itinerary planner inside GatherGlow, a day planner for a group of working adults in New York City.
 Plan ONE day for the group described below. Every stop must lie fully inside one of the free windows and inside its opening hours; fixed-start events must use exactly one listed start time; leave enough travel time between stops (walking about 12 minutes per km when under 1.3 km apart, otherwise subway about 12 minutes plus 3.2 minutes per km; Manhattan to Downtown Brooklyn is roughly 30 to 40 minutes). Use only the listed place ids, each at most once per plan. Keep the total per person at or under the hard budget.
 Make 3 different plans of 2 to 4 stops, normally one food stop. Maximise how many people get something they wished for, then something they are into, while spending as little as possible. Plan 1: best for everyone. Plan 2: the cheapest good one. Plan 3: something different.
@@ -990,7 +966,7 @@ def h_ai(pid, q, b):
         raise ApiError(402, "upgrade_required", "The AI organizer comes with an Event Pass, Plus, Family or Crew.")
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise ApiError(503, "ai_not_configured", "The AI organizer isn't configured on this deployment.")
-    import anthropic  # imported lazily so the rest of the API works without it
+    import anthropic
     client = anthropic.Anthropic()
     prompt = build_ai_prompt(p, b.get("context") or {})
     try:
@@ -1023,7 +999,6 @@ def h_ai(pid, q, b):
     return {"plan": public_plan(p, t)}
 
 
-# ------------------------------------------------------------------ payments (Stripe Checkout, test mode)
 def stripe(method, path, form=None):
     key = os.environ.get("STRIPE_SECRET_KEY")
     if not key:
@@ -1109,9 +1084,8 @@ def h_verify(q, b):
     return {"plus": True, "tier": plan["tier"], "plan": key}
 
 
-# ------------------------------------------------------------------ routing
 def route(method, path, query, body, origin):
-    parts = [x for x in path.split("/") if x][1:]  # drop "api"
+    parts = [x for x in path.split("/") if x][1:]
     if method == "GET" and parts == ["health"]:
         return h_health(query, body)
     if method == "GET" and parts == ["me"]:
@@ -1143,7 +1117,6 @@ def route(method, path, query, body, origin):
 
 
 def handle(method, raw_path, headers, raw_body):
-    """Returns (status, payload). Shared by Vercel and the local dev server."""
     u = urllib.parse.urlsplit(raw_path)
     query = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
     try:
@@ -1167,7 +1140,7 @@ def handle(method, raw_path, headers, raw_body):
         raise
 
 
-class handler(BaseHTTPRequestHandler):  # Vercel entry point
+class handler(BaseHTTPRequestHandler):
     def _go(self, method):
         n = int(self.headers.get("content-length") or 0)
         raw = self.rfile.read(n).decode("utf-8") if n else ""

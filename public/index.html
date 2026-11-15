@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
 <style>
-/* Layout: calm full-screen 3D orbit scene; information is spread across small floating cards that unfold step by step. */
+
 :root{
   --bg:#f3f1ed; --ink:#17171c; --muted:#6c6b73; --faint:#a3a2a9; --accent:#e2552d; --accent-ink:#ffffff;
   --paper:rgba(255,255,255,.93); --paper-solid:#ffffff; --line:rgba(23,23,28,.09); --chip:rgba(23,23,28,.045);
@@ -93,7 +93,6 @@ input:focus{border-color:var(--ink)}
 .row2>div{min-width:0}
 .weekday{font-size:12.5px;color:var(--muted);margin-top:6px}
 
-/* teaser */
 .tease h3{font-size:15px;margin-top:4px}
 .tlist{display:grid;gap:10px;margin-top:12px}
 .titem{display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:center}
@@ -102,7 +101,6 @@ input:focus{border-color:var(--ink)}
 .titem small{color:var(--muted);font-size:12px}
 .titem>div{min-width:0}
 
-/* how-it-works modal */
 .modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(15,15,20,.28);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .3s;padding:16px}
 .modal.show{opacity:1;pointer-events:auto}
 .mcard{width:min(520px,100%);background:var(--paper-solid);border-radius:24px;padding:30px;box-shadow:0 40px 100px rgba(0,0,0,.2);transform:translateY(10px);transition:transform .4s cubic-bezier(.2,.8,.2,1)}
@@ -119,7 +117,6 @@ input:focus{border-color:var(--ink)}
 .mdots i{width:6px;height:6px;border-radius:6px;background:var(--line);transition:width .3s,background .3s}
 .mdots i.on{width:22px;background:var(--ink)}
 
-/* wizard */
 .progress{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:14px}
 .progress i{height:3px;border-radius:3px;background:var(--line);transition:background .3s}
 .progress i.on{background:var(--ink)}
@@ -147,7 +144,7 @@ input[type=range]{width:100%;accent-color:var(--ink);margin-top:8px}
 .summary div{display:flex;justify-content:space-between;gap:10px}
 .summary span{color:var(--muted)}
 .summary b{font-weight:600;text-align:right}
-/* timetable */
+
 .brushes{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
 .brush{border:1px solid var(--line);background:var(--paper-solid);border-radius:9px;padding:5px 10px;font-size:12.5px;font-weight:500;cursor:grab;display:flex;gap:6px;align-items:center;user-select:none}
 .brush i{width:10px;height:10px;border-radius:3px}
@@ -174,7 +171,6 @@ input[type=range]{width:100%;accent-color:var(--ink);margin-top:8px}
 .blk em{font-style:normal;font-size:12px;color:var(--faint)}
 .wfoot .btn{flex:1}
 
-/* crew */
 .code{display:flex;align-items:center;gap:10px;border:1px dashed var(--line);border-radius:12px;padding:8px 8px 8px 12px;margin-top:14px;font-size:12.5px}
 .code b{font-family:ui-monospace,Menlo,monospace;font-size:13px;letter-spacing:.06em}
 .code span{color:var(--muted)}
@@ -210,7 +206,6 @@ input[type=range]{width:100%;accent-color:var(--ink);margin-top:8px}
 .dots i{width:8px;height:8px;border-radius:50%;opacity:.25;transition:opacity .3s}
 .dots i.in{opacity:1}
 
-/* day bar */
 .daybar{position:relative;height:26px;border-radius:8px;background:var(--chip);overflow:hidden;margin-top:6px}
 .daybar .fr{position:absolute;top:0;bottom:0;background:var(--free)}
 .daybar .st{position:absolute;top:5px;bottom:5px;border-radius:5px;background:var(--ink);color:#fff;font-size:10.5px;font-weight:600;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
@@ -332,7 +327,6 @@ body.night .mapsrc{color:rgba(255,255,255,.3)}
 body.night .hintbar{color:rgba(255,255,255,.4)}
 body.night .logo{color:#fff}
 
-/* ---- v2: organised step-2 columns, typed extras, photo wish cards, detail sheet ---- */
 .sec{border:1px solid var(--line);background:rgba(255,255,255,.62);border-radius:14px;padding:14px;margin-top:12px}
 .sec>label:first-child,.sec>.lab:first-child{margin-top:0}
 .sec .toggles{margin-top:12px}
@@ -380,7 +374,6 @@ body.night .logo{color:#fff}
 @media (min-width:1700px){ header,.panel,.mcard,#toast,.hintbar{zoom:1.14} }
 @media (min-width:2200px){ header,.panel,.mcard,#toast,.hintbar{zoom:1.3} }
 
-/* ---- v3: welcome intro over golden-hour Manhattan ---- */
 .intro{position:fixed;z-index:10;left:max(6vw,28px);top:50%;width:min(620px,calc(100% - 56px));transform:translateY(-64%);opacity:0;pointer-events:none;transition:opacity .55s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
 .intro.show{opacity:1;transform:translateY(-50%);pointer-events:auto}
 .intro h1{font-size:clamp(44px,5.2vw,92px);line-height:.98;margin-top:14px}
@@ -398,7 +391,6 @@ body.introing .cue{opacity:1;pointer-events:auto}
 body.introing .hintbar{opacity:0}
 @media (prefers-reduced-motion:reduce){.cue svg{animation:none}.intro{transition:none}}
 
-/* ---- v4: GatherGlow welcome, today strip, skyline ---- */
 .logo span{font-size:19px}.logo em{font-style:normal;color:var(--accent)}
 .intro{width:min(600px,42vw)}
 .intro h1{font-size:clamp(46px,5.4vw,96px)}
@@ -446,7 +438,7 @@ body.introing .today{opacity:1;transform:none;pointer-events:auto}
   .cue{display:none}
 }
 @media (max-height:760px) and (max-width:1180px){ .intro .isteps{display:none} }
-/* step-down sizes, applied by fitIntro() only when the text and the strip would touch */
+
 body.measuring .intro,body.measuring .today{transition:none!important}
 body.fit1 .intro .isteps{display:none}
 body.fit1 .today .th small{display:none}
@@ -499,7 +491,6 @@ body.fit5 .today{bottom:10px}
 }
 @media (prefers-reduced-motion:reduce){.panel,.sky,.slide.on,.wstep.on,.tabpane.on{transition:none;animation:none}}
 
-/* ---- added for the deployed app: my plans, welcome back, judge line ---- */
 .mylist{margin-top:16px;display:grid;gap:8px}
 .mylist a{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;text-decoration:none;background:var(--paper-solid);transition:border-color .2s}
 .mylist a:hover{border-color:var(--ink)}
@@ -513,7 +504,6 @@ body.fit5 .today{bottom:10px}
 .jline{margin-top:14px;font-size:13px;color:var(--muted)}
 .jline b{color:var(--ink);font-weight:600}
 
-/* ---- voting: easy to see ---- */
 .vstat{margin-top:16px;padding:13px 15px;border-radius:16px;background:var(--accent);color:#fff;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 8px 22px -10px rgba(226,85,45,.7);animation:vpulse 2.4s ease-in-out infinite}
 .vstat.done{background:var(--ink);box-shadow:none;animation:none}
 .vstat b{display:block;font-family:var(--font-d);font-size:15.5px;font-weight:700}
@@ -547,7 +537,6 @@ body.fit5 .today{bottom:10px}
 .vbig button.no{border-color:var(--line);color:var(--muted)}
 .vbig button.no.on{background:var(--ink);border-color:var(--ink);color:#fff}
 
-/* ---- pricing popup ---- */
 .cycle{display:inline-flex;gap:4px;margin-top:14px;padding:4px;border-radius:99px;background:var(--chip)}
 .cycle button{border:0;background:transparent;border-radius:99px;padding:7px 14px;font-weight:600;font-size:13px;cursor:pointer;color:var(--muted)}
 .cycle button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
@@ -568,7 +557,6 @@ body.fit5 .today{bottom:10px}
 .tier li:before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:700}
 .tier .btn{width:100%}
 
-/* ---- poster cards, ratings, buy links ---- */
 .wgrid .tcard{width:auto;cursor:pointer}
 .wgrid .tcard .cover{aspect-ratio:3/4}
 .wgrid .tcard .cap b{font-size:14.5px}
@@ -607,7 +595,6 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
 .tcard .pills{flex-wrap:nowrap;overflow:hidden}
 .tcard .pills span{flex:none}
 
-/* ---- header "Me" menu ---- */
 .memenu{position:relative}
 .mebtn{display:inline-flex;align-items:center;gap:7px;padding:5px 10px 5px 5px}
 .meav{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700;letter-spacing:.02em}
@@ -659,7 +646,6 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
   </div>
 </header>
 
-<!-- STEP 1: welcome (scroll or tap to reveal the planning card) -->
 <section class="intro" id="intro" aria-label="Welcome">
   <p class="kicker acc">Manhattan, New York City</p>
   <h1>Good Plans,<br>Great Memories.</h1>
@@ -668,7 +654,7 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
 </section>
 <section class="today" id="today" aria-label="What's on today in New York"></section>
 <button class="cue" type="button" id="introCue" aria-label="Scroll down to start planning">Scroll<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-<!-- STEP 1: hero -->
+
 <section class="panel hero" data-panel="1" aria-label="Start">
   <p class="kicker acc">New York City</p>
   <h1>Everyone’s busy.<br>Find the hours you share.</h1>
@@ -684,7 +670,6 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
 </section>
 <aside class="panel tease" data-panel="1" id="tease" aria-label="Happening that day"></aside>
 
-<!-- STEP 2: wizard (left) + crew (right) -->
 <section class="panel left" data-panel="2" id="wizard" aria-label="Your planet">
   <p class="kicker" id="wizKicker">Your planet · 1 of 4</p>
   <h2 id="wizTitle">About you</h2>
@@ -752,18 +737,15 @@ body.stripopen:not(.introing) .today{left:max(16px,2vw);right:max(16px,2vw);widt
   </div>
 </aside>
 
-<!-- STEP 3 -->
 <section class="panel bottom" data-panel="3" aria-label="Gather">
   <div class="pull-text"><h2>Drag each planet into the city</h2><p>Or let gravity do it. Every planet that lands adds its day and wishes to the plan.</p></div>
   <div class="meter"><b id="absorbCount">0 / 5</b><div class="dots" id="absorbDots"></div></div>
   <button class="btn primary" id="pullAll" type="button">Pull everyone in</button>
 </section>
 
-<!-- STEP 4 -->
 <section class="panel left" data-panel="4" id="plansPanel" aria-label="Plans"></section>
 <aside class="panel right" id="detail" aria-label="Plan details"></aside>
 
-<!-- STEP 5 -->
 <section class="panel left" data-panel="5" id="ticket" aria-label="Book"></section>
 
 <aside class="panel right" id="whatson" aria-label="What's on"></aside>

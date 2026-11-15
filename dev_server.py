@@ -1,6 +1,6 @@
 """Local development server: serves public/ and the same API as Vercel.
 
-    python3 dev_server.py            # http://localhost:3000
+    python3 dev_server.py          
 
 Uses a local JSON file for storage unless SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are set.
 Reads environment variables from .env if present.
@@ -29,7 +29,7 @@ def load_env():
 load_env()
 os.environ.setdefault("LOCAL_STORE_FILE", os.path.join(ROOT, ".data", "store.json"))
 sys.path.insert(0, os.path.join(ROOT, "api"))
-import index as api  # noqa: E402
+import index as api
 
 PUBLIC = os.path.join(ROOT, "public")
 

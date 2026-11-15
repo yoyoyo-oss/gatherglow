@@ -30,13 +30,12 @@ const state={
   lockedOpt:null, booked:null, plus:false, organizerPlus:false, health:{}
 };
 const me=()=>state.people.find(p=>p.id===state.meId);
-let intro=false; /* welcome screen on step 1, dismissed by scrolling or the button */
+let intro=false;
 function nextSaturday(){ const d=new Date(); d.setDate(d.getDate()+((6-d.getDay()+7)%7||7)); return d.toISOString().slice(0,10); }
 const prettyDate=s=>new Date(s+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
 const longDate=s=>new Date(s+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
 state.date=nextSaturday();
 
-/* ================= engine ================= */
 const TAX=.08875,TIP=.20,TRAVEL=30,DAY_START=7*60;
 const round2=x=>Math.round(x*100)/100;
 const dow=d=>new Date(d+'T12:00:00').getDay();
@@ -63,7 +62,7 @@ function priceVenue(v,c,start){
 }
 function quoteStops(stops,c){ const lines=stops.map(s=>priceVenue(BY_ID[s.id],c,s.start)),sum=k=>round2(lines.reduce((a,l)=>a+l[k],0)); const subtotal=sum('base'),tax=sum('tax'),tip=sum('tip'),total=round2(subtotal+tax+tip); return {lines,subtotal,tax,tip,total,perPerson:round2(total/c.size),size:c.size}; }
 function budgetStatus(pp,cap){ if(!isFinite(cap)) return {level:'none',ratio:0}; const r=pp/cap; return {level:r>1?'over':r>=.9?'warn':'ok',ratio:round2(r)}; }
-/* typed extras (anything not in the preset lists) match a place when its name, category, tags or area contain the word */
+
 const venueText=v=>(v.name+' '+v.category+' '+v.tags.join(' ')+' '+v.neighborhood).toLowerCase();
 function memberMatches(v,m){ const wants=v.type==='food'?m.foods||[]:m.vibes||[]; const hits=v.tags.filter(t=>wants.includes(t)); const known=v.type==='food'?KNOWN_F:KNOWN_V, txt=venueText(v); wants.forEach(w=>{ if(known.has(w)||w.length<2||hits.includes(w)) return; if(txt.includes(w)||(w.length>3&&w.endsWith('s')&&txt.includes(w.slice(0,-1)))) hits.push(w); }); if((m.wishes||[]).includes(v.id)) hits.unshift('wished for '+short(v)); if(wants.includes('anything')) hits.push('open to anything'); return hits; }
 const venueScore=(v,ms)=>ms.reduce((s,m)=>s+memberMatches(v,m).length+((m.wishes||[]).includes(v.id)?2:0),0);
@@ -72,7 +71,7 @@ function freeWindows(slots){ const f=slots||groupFreeSlots(),w=[]; let s=-1; for
 function personWindows(p){ return freeWindows(Array.from({length:48},(_,i)=>i>=DAY_START/30&&!BUSY.has((p.schedule||[])[i]))); }
 const inWindows=(a,b,wins)=>wins.some(([x,y])=>a>=x&&b<=y);
 const startsOf=v=>v.starts?v.starts.map(toMin):null;
-/* travel between two venues: walk under ~1.3 km, otherwise subway (estimate) */
+
 function distKm(a,b){ const R=6371,toR=Math.PI/180,dLa=(b.lat-a.lat)*toR,dLo=(b.lng-a.lng)*toR,x=Math.sin(dLa/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
 function travel(a,b){ if(!a||!b||a.lat==null||b.lat==null) return {min:TRAVEL,mode:'transit',km:0}; const km=distKm(a,b); return km<=1.3?{min:Math.max(10,Math.ceil(km/4.8*60)+5),mode:'walk',km}:{min:Math.ceil(12+km*3.2),mode:'subway',km}; }
 function place(items,wins){
@@ -144,11 +143,9 @@ function validateStops(raw){
   return {ok:true,stops:out};
 }
 
-/* ================= server sync ================= */
 function newTok(){ const a=new Uint8Array(18); crypto.getRandomValues(a); return Array.from(a,b=>'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[b%62]).join(''); }
 const TOKEN=(function(){
-  /* No sign-up: each browser gets a random token. "?fresh=1" gives this tab its own identity,
-     so a judge can play a second person in another tab without an incognito window. */
+
   const fresh=new URLSearchParams(location.search).has('fresh');
   try{
     let t=sessionStorage.getItem('pt:token');
@@ -205,7 +202,6 @@ async function poll(){
 setInterval(poll,3500);
 async function refreshMe(){ try{ const r=await api('GET','/me?token='+TOKEN); state.plus=r.plus; state.tier=r.tier||null; state.coveredBy=r.coveredBy||null; state.myPlans=r.plans||[]; state.stats=r.stats||null; state.profile=r.profile||null; renderPlusBadge(); renderMine(); }catch(e){} }
 
-/* ================= three ================= */
 const canvas=$('#gl');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 const scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(40,1,.1,300);
@@ -223,7 +219,7 @@ const mesh=(g,m)=>new THREE.Mesh(g,m);
 function onSurface(obj,dir,r){ dir=dir.clone().normalize(); obj.position.copy(dir).multiplyScalar(r); obj.quaternion.setFromUnitVectors(new V3(0,1,0),dir); return obj; }
 function randDir(minY=-1){ let v; do{ v=new V3(rand(-1,1),rand(-1,1),rand(-1,1)); }while(v.length()>1||v.length()<.2||v.clone().normalize().y<minY); return v.normalize(); }
 function orbitLine(r,tilt,opacity){ const pts=[]; for(let i=0;i<=96;i++){ const a=i/96*Math.PI*2; pts.push(new V3(Math.cos(a)*r,Math.sin(a)*r*tilt,Math.sin(a)*r)); } return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x17171c,transparent:true,opacity})); }
-/* a tiny rider who sits on top of each planet: beanie in the planet's tone, orange scarf, one arm waving */
+
 function buildRider(color){
   const g=new THREE.Group(), ink=std(0x24242c,{roughness:.6}), pale=std(0xf3e9dc,{roughness:.7}), acc=std(0xe2552d,{roughness:.5}), tone=std(color,{roughness:.55});
   const add=(geo,mat,x,y,z,rx=0,rz=0,to=g)=>{ const m=mesh(geo,mat); m.position.set(x,y,z); m.rotation.x=rx; m.rotation.z=rz; to.add(m); return m; };
@@ -236,7 +232,7 @@ function buildRider(color){
   const arm=new THREE.Group(); arm.position.set(.095,.295,0); add(new THREE.CylinderGeometry(.026,.024,.2,8),ink,0,.1,0,0,0,arm); add(new THREE.SphereGeometry(.032,10,8),pale,0,.215,0,0,0,arm); g.add(arm);
   g.scale.setScalar(1.55); g.userData={arm,ph:Math.random()*6.28}; return g;
 }
-/* person planet: a toned sphere, a thin ring, one small moon per interest, a dark "private budget" moon and a rider */
+
 function buildPlanet(p){
   const root=new THREE.Group(), spin=new THREE.Group(); root.add(spin);
   spin.add(mesh(new THREE.SphereGeometry(1,64,48),std(0xffffff,{map:bandTex(p.color),roughness:.55})));
@@ -248,7 +244,7 @@ function buildPlanet(p){
   root.userData={spin,moons,person:p,rider}; root.traverse(o=>{ if(o.isMesh) o.userData.owner=root; }); return root;
 }
 function disposeObj(o){ o.traverse(c=>{ if(c.isMesh||c.isLine){ c.geometry.dispose(); [].concat(c.material).forEach(m=>{ if(m.map) m.map.dispose(); m.dispose(); }); } }); }
-/* ===== Manhattan: real shoreline, parks and building footprints (NYC Open Data) ===== */
+
 const MD=window.MAP_DATA, S=0.00057, HEX=2.4, ROT=61*Math.PI/180, LAND=.04;
 const cosR=Math.cos(ROT), sinR=Math.sin(ROT);
 const KX=Math.cos(MD.origin[0]*Math.PI/180)*111320, KY=110574;
@@ -258,7 +254,7 @@ const ll2w=(lat,lng)=>m2w((lng-MD.origin[1])*KX,(lat-MD.origin[0])*KY);
 (function(){ let a=1e9,b=-1e9,c=1e9,d=-1e9; MD.land.forEach(r=>{ for(let i=0;i<r.length;i+=2){ const [x,z]=m2w(r[i],r[i+1]); a=Math.min(a,x); b=Math.max(b,x); c=Math.min(c,z); d=Math.max(d,z); } }); CX=(a+b)/2; CZ=(c+d)/2; })();
 const core=new THREE.Group(); scene.add(core); core.userData.pulse=0;
 const city=new THREE.Group(); scene.add(city);
-/* city planet: calm white by day; on the last step it turns into a lit night planet with an atmosphere, glowing rings and one small moon per person */
+
 const cityFx=new THREE.Group(); scene.add(cityFx);
 let nightMix=0; const cityNight={towers:[],moons:[]};
 const ADD={blending:THREE.CustomBlending,blendEquation:THREE.AddEquation,blendSrc:THREE.SrcAlphaFactor,blendDst:THREE.OneFactor,blendSrcAlpha:THREE.ZeroFactor,blendDstAlpha:THREE.OneFactor};
@@ -284,7 +280,7 @@ const outerRing=mesh(new THREE.TorusGeometry(2.95,.006,6,200),new THREE.MeshBasi
   const ring=mesh(new THREE.TorusGeometry(2.3,.015,8,180),ringMat); ring.rotation.x=Math.PI/2+.25; ring.add(ringGlow); city.add(ring);
   crewRing.add(outerRing); cityFx.add(halo,rim,crewRing);
 })();
-/* low golden sun behind the skyline (steps 1 to 3) */
+
 const sunTex=tex((g,w,h)=>{ const gr=g.createRadialGradient(w/2,h/2,0,w/2,h/2,w/2); gr.addColorStop(0,'rgba(255,244,214,.95)'); gr.addColorStop(.05,'rgba(255,220,160,.7)'); gr.addColorStop(.18,'rgba(255,180,110,.28)'); gr.addColorStop(.5,'rgba(255,150,90,.07)'); gr.addColorStop(1,'rgba(255,140,80,0)'); g.fillStyle=gr; g.fillRect(0,0,w,h); },256,256);
 const sunGlow=new THREE.Sprite(Object.assign(new THREE.SpriteMaterial({map:sunTex,transparent:true,opacity:0,depthWrite:false}),ADD)); sunGlow.position.set(-20,1.6,-50); sunGlow.scale.setScalar(40); scene.add(sunGlow);
 let sphereMix=0, goldMix=1;
@@ -299,11 +295,11 @@ const landMat=new THREE.MeshLambertMaterial({color:MAPCOL.day.land}), bkMat=new 
   MD.land.forEach(r=>{ const g=new THREE.ExtrudeGeometry(shapeFrom(r),ext); g.rotateX(-Math.PI/2); core.add(mesh(g,landMat)); });
   MD.parks.forEach(p=>{ const g=new THREE.ShapeGeometry(shapeFrom(p.p)); g.rotateX(-Math.PI/2); g.translate(0,LAND+.002,0); core.add(mesh(g,parkMat)); });
 })();
-/* water: soft disc that fades into the page */
+
 const waterTex=tex((g,w,h)=>{ const gr=g.createRadialGradient(w/2,h/2,0,w/2,h/2,w/2); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.55,'rgba(255,255,255,.9)'); gr.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=gr; g.fillRect(0,0,w,h); },256,256);
 const waterMat=new THREE.MeshBasicMaterial({color:MAPCOL.day.water,map:waterTex,transparent:true,depthWrite:false});
 const water=mesh(new THREE.PlaneGeometry(26,26),waterMat); water.rotation.x=-Math.PI/2; water.position.y=-.005; core.add(water);
-/* buildings: one merged mesh, extruded from real footprints and roof heights */
+
 const bldMat=new THREE.MeshLambertMaterial({vertexColors:true});
 (function(){
   const B=MD.b; let nv=0; const cnt=[];
@@ -332,9 +328,9 @@ const bldMat=new THREE.MeshLambertMaterial({vertexColors:true});
   g.setAttribute('position',new THREE.BufferAttribute(pos.subarray(0,o*3),3)); g.setAttribute('normal',new THREE.BufferAttribute(nor.subarray(0,o*3),3)); g.setAttribute('color',new THREE.BufferAttribute(col.subarray(0,o*3),3));
   const m=mesh(g,bldMat); m.frustumCulled=false; core.add(m);
 })();
-/* Brooklyn Bridge, thin and quiet */
+
 (function(){ const a=ll2w(40.7114,-74.0026), b=ll2w(40.7008,-73.9899); const A=new V3(a[0],LAND,a[1]), Bv=new V3(b[0],LAND,b[1]), M=A.clone().add(Bv).multiplyScalar(.5); M.y=.06; core.add(mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(A,M,Bv),30,.006,4),new THREE.MeshBasicMaterial({color:0x9a9aa3}))); })();
-/* map labels */
+
 const GEO=[['Central Park',40.7812,-73.9665],['Midtown',40.7549,-73.9840],['Lower Manhattan',40.7075,-74.0100],['Harlem',40.8116,-73.9465],['Upper West Side',40.7870,-73.9754],['Upper East Side',40.7736,-73.9566],['Greenwich Village',40.7336,-74.0027],['Chelsea',40.7465,-74.0014],['Downtown Brooklyn',40.6928,-73.9840],['Hudson River',40.7600,-74.0150,1],['East River',40.7380,-73.9680,1]];
 let geoLabels=[];
 const starGeo=new THREE.BufferGeometry(); { const n=1200,p=new Float32Array(n*3); for(let i=0;i<n;i++){ const d=randDir(-.2).multiplyScalar(rand(40,80)); p.set([d.x,d.y,d.z],i*3); } starGeo.setAttribute('position',new THREE.BufferAttribute(p,3)); }
@@ -348,11 +344,10 @@ class Particles{
 }
 const sparks=new Particles(700,false,.12), glow=new Particles(1600,true,.2);
 
-/* planets */
 const ents=[], labelsEl=$('#labels');
 function makeLabel(cls,html){ const d=document.createElement('div'); d.className='lbl '+cls; d.innerHTML=html; d.style.opacity=0; labelsEl.appendChild(d); return d; }
 const labelHtml=p=>`<i style="background:${p.color}"></i>${esc(p.name)}${p.id===state.meId?' · you':''}`;
-const ORBIT_Y=2; /* planets circle above the skyline */
+const ORBIT_Y=2;
 function orbitFor(i){ return {r:4.6+(i%6)*1.05,sp:(.22-(i%6)*.022)*(reduce?.3:1),tilt:(i%2?1:-1)*(.08+(i%3)*.06),ang:i*1.25}; }
 const orbitPos=o=>new V3(Math.cos(o.ang)*o.r,ORBIT_Y+Math.sin(o.ang)*o.r*o.tilt,Math.sin(o.ang)*o.r);
 function orbitLineP(r,tilt,opacity){ const pts=[]; for(let i=0;i<=120;i++){ const a=i/120*Math.PI*2; pts.push(new V3(Math.cos(a)*r,ORBIT_Y+Math.sin(a)*r*tilt,Math.sin(a)*r)); } return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x6b4426,transparent:true,opacity:opacity*2.1})); }
@@ -362,7 +357,7 @@ function refreshPersonOrbits(){ while(personOrbits.children.length){ const c=per
 function addEnt(p,fromPos){ const obj=buildPlanet(p); obj.scale.setScalar(PS); scene.add(obj); const e={p,obj,orb:orbitFor(ents.length),mode:fromPos?'fly':'orbit',t:0,from:fromPos?fromPos.clone():null,hover:0,label:makeLabel('',labelHtml(p))}; obj.position.copy(fromPos||orbitPos(e.orb)); ents.push(e); refreshPersonOrbits(); return e; }
 function rebuildEnt(e){ const pos=e.obj.position.clone(),sc=e.obj.scale.x,vis=e.obj.visible; scene.remove(e.obj); disposeObj(e.obj); e.obj=buildPlanet(e.p); e.obj.position.copy(pos); e.obj.scale.setScalar(sc); e.obj.visible=vis; scene.add(e.obj); }
 function refreshLabels(){ ents.forEach(e=>e.label.innerHTML=labelHtml(e.p)); }
-/* welcome planets: four sample friends with riders orbit the city on the start screens until real people join */
+
 const WELCOME=[{id:'w-aru',name:'Aru',color:'#3f5873',vibes:['art','views'],tag:'Free 5–9pm',sub:'from their day'},{id:'w-mira',name:'Mira',color:'#c2a46e',vibes:['music','comedy'],tag:'Loves live music',sub:'wish list'},
   {id:'w-jun',name:'Jun',color:'#8aa596',vibes:['outdoors','holiday','free'],tag:'Wants to be outdoors',sub:'wish list: the High Line'},{id:'w-sam',name:'Sam',color:'#a87f86',vibes:['games','nightlife'],tag:'Vegetarian',sub:'food that fits'}].map((p,i)=>{
   const obj=buildPlanet({...p,foods:[]}); obj.scale.setScalar(.001); obj.visible=false; scene.add(obj);
@@ -381,7 +376,6 @@ function removeEnt(e){ scene.remove(e.obj); disposeObj(e.obj); e.label.remove();
 const PS=.72, PREVIEW_POS=new V3(0,5,0); let preview=null;
 function setPreview(p){ if(preview){ scene.remove(preview); disposeObj(preview); preview=null; } if(!p) return; preview=buildPlanet(p); preview.position.copy(PREVIEW_POS); preview.scale.setScalar(.01); preview.userData.grow=0; scene.add(preview); }
 
-/* plan routes drawn on the Manhattan map */
 const THEMES=[{base:'#e2552d'},{base:'#3f5873'},{base:'#5f8a6a'}];
 const worlds=[];
 const venuePos=v=>{ const [x,z]=ll2w(v.lat,v.lng); return new V3(x,LAND,z); };
@@ -419,7 +413,6 @@ const upVoters=i=>state.people.filter(p=>votesFor(i)[p.id]===1);
 function refreshWorldVotes(){}
 function refreshWorldLabels(){ worlds.forEach((w,i)=>{ const o=state.options[i],sch=schedule(o); w.label.innerHTML=`<b><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${THEMES[i%3].base};margin-right:6px"></span>${esc(o.label)}</b><small>${hs(sch[0].s)}–${hs(sch[sch.length-1].end)} · ${money(o.perPerson)} pp</small>`; }); }
 
-/* camera */
 const rig={target:new V3(),theta:.35,phi:1.2,r:17,shift:0},want={target:new V3(),theta:.35,phi:1.2,r:17,shift:0},user={theta:0,phi:0,r:0};
 function setView(){
   const s=state.step,n=narrow();
@@ -434,7 +427,6 @@ function setView(){
 }
 function updateCam(dt){ const k=1-Math.exp(-dt*3); rig.target.lerp(want.target,k); rig.theta+=(want.theta+user.theta-rig.theta)*k; rig.phi+=(Math.min(1.5,Math.max(.35,want.phi+user.phi))-rig.phi)*k; rig.r+=(Math.max(4,want.r+user.r)-rig.r)*k; rig.shift+=(want.shift-rig.shift)*k; const sp=Math.sin(rig.phi); cam.position.set(rig.target.x+rig.r*sp*Math.sin(rig.theta),rig.target.y+rig.r*Math.cos(rig.phi),rig.target.z+rig.r*sp*Math.cos(rig.theta)); cam.lookAt(rig.target); cam.setViewOffset(W,H,-rig.shift,0,W,H); }
 
-/* pointer */
 const ray=new THREE.Raycaster(),ndc=new THREE.Vector2(-9,-9),ptr={down:false,x:0,y:0,moved:0,drag:null},tip=$('#tip');
 function pick(){ ray.setFromCamera(ndc,cam); let objs=[]; if(state.step<=3) objs=ents.filter(e=>e.mode==='orbit'||e.mode==='fly').map(e=>e.obj); if(state.step===4) objs=worlds.filter(w=>w.obj.visible).flatMap(w=>w.obj.userData.pins.map(p=>p.head)); const hit=ray.intersectObjects(objs,true)[0]; if(!hit) return null; return hit.object.userData.pin?{pin:hit.object.userData.pin,obj:hit.object}:hit.object.userData.owner; }
 let hovered=null;
@@ -453,14 +445,11 @@ canvas.addEventListener('pointerleave',()=>{ tip.classList.remove('show'); ndc.s
 canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(intro){ if(e.deltaY>4) dismissIntro(); return; } if(state.step===1&&e.deltaY<-4){ showIntro(); return; } user.r=Math.max(-8,Math.min(12,user.r+e.deltaY*.012)); },{passive:false});
 function onClick(o){ if(!o) return; if(o.pin){ if(state.step===4){ tab='plan'; if(state.selected!==o.pin.i) selectPlan(o.pin.i); else renderDetail(); } return; } if(state.step===2&&o.userData&&o.userData.person) editPerson(o.userData.person.id); }
 
-/* helpers */
 let toastT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2800); }
 function copyText(text,btn){ const done=()=>{ btn.textContent='Copied'; setTimeout(()=>btn.textContent='Copy',1400); }; const fb=()=>{ const r=document.createRange(); r.selectNodeContents($('#inviteCode')); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast('Press ⌘C / Ctrl+C to copy the code'); }; try{ navigator.clipboard.writeText(text).then(done,fb); }catch(e){ fb(); } }
 const planMeta=()=>`${state.planName} · ${prettyDate(state.date)}`;
 function dayBar(stops){ const a=DAY_START,b=1440,pct=m=>((Math.max(a,Math.min(b,m))-a)/(b-a)*100).toFixed(2); const fr=freeWindows().map(([x,y])=>`<span class="fr" style="left:${pct(x)}%;width:${pct(y)-pct(x)}%"></span>`).join(''); const st=(stops||[]).map((s,k)=>{ const v=BY_ID[s.id]; return `<span class="st" title="${esc(v.name)}" style="left:${pct(s.start)}%;width:${pct(s.start+v.duration_min)-pct(s.start)}%">${k+1}</span>`; }).join(''); return `<div class="daybar">${fr}${st}</div><div class="dayticks"><span>7am</span><span>11am</span><span>3pm</span><span>7pm</span><span>11pm</span></div>`; }
 
-
-/* ===== welcome: What's on today (draggable strip) ===== */
 function todayISO(){ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10); }
 const shortTime=t=>t?String(t).replace(':00','').replace(' PM','pm').replace(' AM','am'):'';
 const shortPrice=p=>{ if(!p||/not posted/i.test(p)||/^varies$/i.test(p)) return ''; const m=String(p).match(/\$\s?\d+/); return m?m[0].replace(' ','')+(/from/i.test(p)?'+':''):p; };
@@ -493,7 +482,7 @@ function renderToday(dArg){
   $('#tNext').onclick=()=>{ stopAuto(); tr.scrollBy({left:step()*2}); };
   const tcl=$('#tClose'); if(tcl) tcl.onclick=()=>toggleStrip(false);
   const tfu=$('#tFull'); if(tfu) tfu.onclick=()=>{ toggleStrip(false); toggleWhatsOn(true); };
-  /* drag with the mouse; touch scrolls natively */
+
   let sx=0,sl=0,down=false,moved=false;
   tr.addEventListener('pointerdown',ev=>{ if(ev.pointerType!=='mouse'||ev.button!==0||ev.target.closest('.wpick')) return; down=true; moved=false; sx=ev.clientX; sl=tr.scrollLeft; stopAuto(); });
   addEventListener('pointermove',ev=>{ if(!down) return; const dx=ev.clientX-sx; if(!moved&&Math.abs(dx)>5){ moved=true; tr.classList.add('dragging'); } if(moved) tr.scrollLeft=sl-dx; });
@@ -509,13 +498,13 @@ function renderToday(dArg){
       else if(state.step===1) toast(added?'Added to your picks. They’ll be on your planet.':'Removed from your picks');
       else toast(added?'Added to your picks. Open your planet and save it to share with the group.':'Removed from your picks'); };
   });
-  /* gentle drift until someone touches it */
+
   let hover=false; el.onmouseenter=()=>{ hover=true; }; el.onmouseleave=()=>{ hover=false; };
   if(!matchMedia('(prefers-reduced-motion: reduce)').matches){ const t=setInterval(()=>{ if(touched){ clearInterval(t); return; } if(hover||!intro||document.hidden) return; const end=tr.scrollLeft+tr.clientWidth>=tr.scrollWidth-8; tr.scrollTo({left:end?0:tr.scrollLeft+step()}); },3600); }
   loadPhotos(el);
   fitIntro(); setTimeout(fitIntro,950);
 }
-/* make sure the welcome text never sits under the header or on top of the strip: shrink step by step */
+
 function fitIntro(){
   const b=document.body, a=$('#intro'), t=$('#today'), hd=document.querySelector('header'); if(!a||!t||!intro) return;
   const L=['fit1','fit2','fit3','fit4','fit5'];
@@ -533,7 +522,6 @@ function fitIntro(){
 }
 addEventListener('resize',()=>{ clearTimeout(fitIntro.t); fitIntro.t=setTimeout(fitIntro,120); });
 
-/* ===== golden-hour Manhattan skyline (drawn, not a photo) ===== */
 function buildSkyline(){
   const el=$('#cityline'); if(!el) return;
   const W=1600,G=300; let seed=11; const rnd=()=>(seed=seed*16807%2147483647)/2147483647;
@@ -567,7 +555,6 @@ function buildSkyline(){
 }
 buildSkyline();
 
-/* ================= navigation ================= */
 function goStep(n){
   if(n>state.maxStep) return;
   if(state.lockedOpt&&n<5&&n!==2) return toast('This plan is locked. The organizer can change it from the ticket (step 5).');
@@ -591,7 +578,7 @@ function goStep(n){
 }
 function discardPlans(){ state.options=null; state.selected=-1; state.ai=null; clearWorlds(); $('#detail').classList.remove('show'); ents.forEach(e=>{ e.mode='orbit'; e.obj.visible=true; e.obj.scale.setScalar(PS); }); core.visible=true; core.scale.setScalar(1); coreShrink=0; state.maxStep=Math.min(state.maxStep,3); }
 $$('#steps button').forEach(b=>b.onclick=()=>goStep(+b.dataset.go));
-/* welcome screen <-> start: scroll down to start planning, scroll up to come back */
+
 let introLock=0;
 const introReady=()=>{ const t=performance.now(); if(t<introLock) return false; introLock=t+850; return true; };
 function dismissIntro(){ if(!intro||!introReady()) return; intro=false; goStep(1); }
@@ -611,7 +598,6 @@ addEventListener('keydown',e=>{ if(e.target.closest&&e.target.closest('button,a,
   else if(!intro&&state.step===1&&['ArrowUp','PageUp'].includes(e.key)){ e.preventDefault(); showIntro(); } });
 $('#restart').onclick=()=>{ location.href='/?start=1'; };
 
-/* ---- How it works modal ---- */
 let slide=0;
 function showSlide(i){ slide=i; $$('.slide').forEach(s=>s.classList.toggle('on',+s.dataset.sl===i)); $$('#mdots i').forEach((d,k)=>d.classList.toggle('on',k===i)); $('#mNext').textContent=i===3?(state.step===1?'Start planning':'Got it'):'Next'; $('#mBack').textContent=i===0?'Close':'Back'; }
 function openHow(){ showSlide(0); $('#howModal').classList.add('show'); $('#mNext').focus(); }
@@ -622,7 +608,6 @@ $('#mBack').onclick=()=>{ if(slide>0) showSlide(slide-1); else closeHow(); };
 $('#howModal').addEventListener('click',e=>{ if(e.target.id==='howModal') closeHow(); });
 addEventListener('keydown',e=>{ if(!$('#howModal').classList.contains('show')) return; if(e.key==='Escape') closeHow(); if(e.key==='ArrowRight'&&slide<3) showSlide(slide+1); if(e.key==='ArrowLeft'&&slide>0) showSlide(slide-1); });
 
-/* ---- step 1 ---- */
 function showWeekday(){ const d=$('#planDate').value; $('#weekday').textContent=d?longDate(d):''; }
 $('#planDate').value=state.date; showWeekday();
 $('#planDate').oninput=()=>{ showWeekday(); if($('#planDate').value){ state.date=$('#planDate').value; renderTease(); } };
@@ -649,7 +634,6 @@ async function createPlan(sample){
 $('#startForm').onsubmit=e=>{ e.preventDefault(); createPlan(false); };
 $('#demoBtn').onclick=()=>createPlan(true);
 
-/* ---- step 2: wizard ---- */
 let draft=null,editingId=null,editBackup=null,brush='work',wstep=1;
 const WTITLES=['About you','Your day','What you’d love to do','Your private budget'];
 function nextColor(){ const used=state.people.map(p=>p.color); return COLORS.find(c=>!used.includes(c))||COLORS[Math.floor(Math.random()*COLORS.length)]; }
@@ -690,7 +674,7 @@ function renderChips(){
   $$('#foodChips .chip').forEach(c=>c.onclick=()=>{ toggle(draft.foods,c.dataset.id); renderChips(); livePreview(); });
   $$('#actChips .chip').forEach(c=>c.onclick=()=>{ toggle(draft.vibes,c.dataset.id); renderChips(); livePreview(); });
 }
-/* typed extras: saved in lower case next to the preset ids */
+
 function addCustom(input,arr,list){
   const raw=input.value.trim().toLowerCase().replace(/[^\p{L}\p{N} &'\-]/gu,'').replace(/\s+/g,' ').slice(0,20);
   if(raw.length<2){ toast('Type at least two letters'); return; }
@@ -704,8 +688,7 @@ function addCustom(input,arr,list){
   $(i).addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); addCustom($(i),get(),list); } });
 });
 const toggle=(arr,id)=>{ const i=arr.indexOf(id); i>=0?arr.splice(i,1):arr.push(id); };
-/* timetable */
-/* timetable: typed time blocks, edited in a popup */
+
 function runs(day){ const r=[]; let i=0; while(i<48){ const t=day[i]; if(!t){ i++; continue; } let j=i; while(j<48&&day[j]===t) j++; r.push({t,a:i,b:j}); i=j; } return r; }
 const hhmm24=slot=>`${String(Math.floor(slot/2)%24).padStart(2,'0')}:${slot%2?'30':'00'}`;
 const slotOf=v=>{ const m=/^(\d{1,2}):(\d{2})/.exec(v||''); if(!m) return null; return Math.min(48,Math.round((+m[1]*60+ +m[2])/30)); };
@@ -748,7 +731,7 @@ $('#bmSave').onclick=()=>{
 };
 $('#blockModal').addEventListener('click',e=>{ if(e.target.id==='blockModal') closeBlock(); });
 addEventListener('keydown',e=>{ if(!$('#blockModal').classList.contains('show')) return; if(e.key==='Escape') closeBlock(); if(e.key==='Enter'&&!$('#bmSave').disabled){ e.preventDefault(); $('#bmSave').click(); } });
-/* wishes */
+
 const SV=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 const WICON={
   shows:SV('<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'),
@@ -759,7 +742,7 @@ const WICON={
   outdoors:SV('<path d="M12 3l6 9h-4l4 6H6l4-6H6z"/><path d="M12 18v3"/>'),
   food:SV('<path d="M7 3v8a2 2 0 0 0 2 2v8"/><path d="M11 3v8a2 2 0 0 1-2 2"/><path d="M17 21V3c-2 1-3 4-3 7h3"/>')
 };
-/* [title, filter, icon, cover colour 1, cover colour 2] */
+
 const WISH_GROUPS=[
   ['Concerts & shows',v=>(v.live&&!v.free)||['Concert','Holiday show','Broadway','Stand-up comedy'].includes(v.category),'shows','#3b3550','#8a6a8e'],
   ['Free events that day · NYC Parks (live)',v=>v.live&&v.free,'outdoors','#6f8c6c','#c3d3ba'],
@@ -769,7 +752,7 @@ const WISH_GROUPS=[
   ['Games',v=>['Bowling','Escape room'].includes(v.category),'games','#a8644c','#dcae96'],
   ['Outdoors',v=>['Park walk','Walk','Boating'].includes(v.category),'outdoors','#6f8c6c','#c3d3ba'],
   ['Food',v=>v.type==='food','food','#bd7c50','#ecc9a4']];
-/* one-line descriptions, written for this app */
+
 const BLURB={
   'neighbourhood-21':'Arena concert at Barclays Center in Brooklyn. Doors usually open about an hour before the start time.',
   'neighbourhood-22':'Arena concert at Barclays Center in Brooklyn. Doors usually open about an hour before the start time.',
@@ -807,7 +790,7 @@ const BLURB={
   'shake-shack':'The original Shake Shack stand in Madison Square Park, with outdoor seating.',
   'carbone':'Italian-American restaurant in Greenwich Village. Reservations are hard to get.'
 };
-/* real photos: looked up by Wikipedia article title when the page can reach the internet (first title with a photo wins) */
+
 const WIKI={
   'neighbourhood-21':['Barclays Center'],'neighbourhood-22':['Barclays Center'],
   'sting-15':['Brooklyn Paramount','Paramount Theatre (Brooklyn)','Downtown Brooklyn'],'sting-18':['Brooklyn Paramount','Paramount Theatre (Brooklyn)','Downtown Brooklyn'],
@@ -841,7 +824,7 @@ function photoFor(id){
         const r=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(t.replace(/ /g,'_')),{signal:ctl.signal}); clearTimeout(tm);
         if(!r.ok) continue; const j=await r.json();
         if(j&&j.thumbnail&&okPhoto(j.thumbnail.source)){ const page=j.content_urls&&j.content_urls.desktop&&j.content_urls.desktop.page; const out={src:j.thumbnail.source,title:String(j.title||t).slice(0,80),page:/^https:\/\/en\.wikipedia\.org\//.test(page||'')?page:''}; PHOTOS[key]=out; try{ localStorage.setItem(PHOTO_KEY,JSON.stringify(PHOTOS)); }catch(e){} return out; }
-      }catch(e){ photoNet=false; return null; } /* offline or blocked: keep the drawn covers and stop asking */
+      }catch(e){ photoNet=false; return null; }
     }
     return null;
   })();
@@ -877,7 +860,7 @@ function toggleWish(id){ toggle(draft.wishes,id); const on=draft.wishes.includes
   $$('#today .tcard').filter(c=>c.dataset.w===id).forEach(c=>{ c.classList.toggle('on',on); const b=c.querySelector('.wpick'); if(b){ b.setAttribute('aria-pressed',on); b.innerHTML=on?CHECK:PLUS; } });
   if(wishOpen===id){ const b=$('#wmPick'); if(b){ b.className='btn '+(on?'dark':'primary'); b.textContent=on?'Added · tap to remove':'Add to my wishes'; } }
 }
-/* detail sheet */
+
 let wishOpen=null, wishFrom=null;
 const durText=m=>m>=60?`About ${Math.floor(m/60)} h${m%60?' '+m%60+' min':''}`:`About ${m} min`;
 function openWish(id){
@@ -908,7 +891,7 @@ function openWish(id){
 function closeWish(){ wishOpen=null; $('#wishModal').classList.remove('show'); if(wishFrom&&wishFrom.isConnected) wishFrom.focus(); }
 $('#wishModal').addEventListener('click',e=>{ if(e.target.id==='wishModal') closeWish(); });
 addEventListener('keydown',e=>{ if(e.key==='Escape'&&wishOpen) closeWish(); });
-/* crew panel */
+
 function renderGroupTT(){
   const ps=state.people,f=groupFreeSlots(),from=8;
   const col=sch=>`<div class="col">${Array.from({length:32},(_,k)=>{ const t=sch[from*2+k]; return `<i style="background:${BLOCKS[t]?BLOCKS[t].c:'transparent'}"></i>`; }).join('')}</div>`;
@@ -949,13 +932,11 @@ $('#cancelBtn').onclick=()=>{ if(state.meId) editPerson(state.meId); };
 $('#copyBtn').onclick=()=>{ const v=$('#inviteLink').value; const done=()=>{ $('#copyBtn').textContent='Copied'; setTimeout(()=>$('#copyBtn').textContent='Copy',1400); }; try{ navigator.clipboard.writeText(v).then(done,()=>{ $('#inviteLink').select(); }); }catch(e){ $('#inviteLink').select(); } };
 $('#toPull').onclick=()=>{ if(!freeWindows().length) return toast('No shared free time yet. Someone needs to free up some time.'); state.maxStep=Math.max(state.maxStep,3); goStep(3); };
 
-/* ---- step 3 ---- */
 function updateAbsorb(){ const n=ents.length,k=ents.filter(e=>e.mode==='absorbed'||e.mode==='absorbing').length; $('#absorbCount').textContent=`${k} / ${n}`; $('#absorbDots').innerHTML=ents.map(e=>`<i class="${e.mode==='absorbed'||e.mode==='absorbing'?'in':''}" style="background:${e.p.color}"></i>`).join(''); $('#pullAll').disabled=k===n; }
 function absorb(en){ if(en.mode==='absorbing'||en.mode==='absorbed') return; en.mode='absorbing'; en.t=0; en.from=en.obj.position.clone(); updateAbsorb(); }
 function onAbsorbed(en){ en.mode='absorbed'; en.obj.visible=false; core.userData.pulse=1; sparks.emit(new V3(0,.7,0),[en.p.color,'#ffffff'],50,4); updateAbsorb(); if(ents.every(e=>e.mode==='absorbed')) setTimeout(revealPlans,700); }
 $('#pullAll').onclick=()=>{ ents.filter(e=>e.mode==='orbit'||e.mode==='fly').forEach((e,i)=>setTimeout(()=>absorb(e),i*260)); };
 
-/* ---- step 4 ---- */
 let coreShrink=0;
 const suggestSig=()=>JSON.stringify(state.suggested||[]);
 let lastSuggest='';
@@ -1021,7 +1002,7 @@ function renderPlanList(){
   const lt=$('#lockTop'); if(lt) lt.onclick=()=>lockPlan(winnerIdx());
   const ab=$('#aiBtn'); if(ab) ab.onclick=askAI;
 }
-/* voting: one helper for the list and the detail; a banner shows who still has to vote */
+
 async function castVote(i,v){
   if(!state.meId) return toast('Make your planet first, then you can vote');
   const o=state.options[i], my=votesFor(i)[state.meId], nv=my===v?0:v;
@@ -1084,7 +1065,6 @@ function renderDetail(){
   const lb=$('#lockBtn'); if(lb) lb.onclick=()=>lockPlan(i);
 }
 
-/* ---- links into other apps ---- */
 const enc=encodeURIComponent;
 const L={
   gmaps:v=>`https://www.google.com/maps/search/?api=1&query=${enc(short(v)+', '+v.address)}`,
@@ -1111,7 +1091,6 @@ function appsHtml(o){ return `<h4>Open in other apps</h4><div class="apps">
   <a href="${L.outlook(o)}" target="_blank" rel="noopener"><span>Outlook<small>Add the day</small></span></a></div>
   <p class="hint">Opens in a new tab. Travel times are estimates; check live transit before you go.</p>`; }
 
-/* ---- step 5 ---- */
 async function lockPlan(i){
   if(i<0||!state.options) return;
   const o=state.options[i];
@@ -1134,7 +1113,6 @@ function renderTicket(){
   const bp=$('#backPlans'); if(bp) bp.onclick=async()=>{ try{ const r=await api('POST','/plans/'+state.planId+'/lock',{token:TOKEN,option:null}); applyPlan(r.plan); }catch(e){ toast(e.message); } };
 }
 
-/* ---- Plus paywall (Stripe Checkout, test mode) ---- */
 const TIER_NAME={plus:'Plus',family:'Family',crew:'Crew'};
 function renderPlusBadge(){ const b=$('#plusBadge'); if(b){ b.hidden=!state.plus; b.textContent=TIER_NAME[state.tier]||'Plus'; }
   const nm=(state.profile&&state.profile.name)||(me()&&me().name)||''; $('#meName').textContent='Me'; $('#meBtn').title=nm?('Signed in on this browser as '+nm):'Me'; $('#meAv').textContent=nm?nm.charAt(0).toUpperCase():'Me'; }
@@ -1183,7 +1161,6 @@ $('#payClose').onclick=()=>$('#payModal').classList.remove('show');
 $('#payModal').addEventListener('click',e=>{ if(e.target.id==='payModal') $('#payModal').classList.remove('show'); });
 $('#pricingBtn').onclick=()=>openPay('pricing');
 
-/* ---- live events, ratings, reviews, alerts, changing a booked plan ---- */
 function registerVenues(list){ (list||[]).forEach(v=>{ if(!v||!v.id) return; if(BY_ID[v.id]) Object.assign(BY_ID[v.id],v); else { VENUES.push(v); BY_ID[v.id]=v; } }); }
 async function loadLive(date){
   if(!date) return; state.liveDate=date;
@@ -1241,7 +1218,7 @@ function toggleStrip(on){
   document.body.classList.toggle('stripopen',on); $('#whatsonBtn').classList.toggle('hot',on);
   if(on){ const d=state.date&&state.planId?state.date:todayISO(); renderToday(d); if(state.liveDate!==d) loadLive(d); }
 }
-/* alerts: notes on the plan (live price/time/status changes, people dropping out, plan changes) */
+
 const notesSeen={};
 function seenKey(){ return 'gg:seen:'+state.planId; }
 function getSeen(){ try{ return JSON.parse(localStorage.getItem(seenKey()))||[]; }catch(e){ return []; } }
@@ -1265,7 +1242,7 @@ $('#alertBtn').onclick=()=>{ renderAlerts(); $('#alertModal').classList.add('sho
 $('#alertClose').onclick=()=>$('#alertModal').classList.remove('show');
 $('#alertModal').addEventListener('click',e=>{ if(e.target.id==='alertModal') $('#alertModal').classList.remove('show'); });
 $('#alertPush').onclick=async()=>{ try{ await Notification.requestPermission(); }catch(e){} renderAlerts(); };
-/* ticket: alerts, who can't make it, change the plan, rate your stops */
+
 function ticketExtras(o,b){
   const t=$('#ticket'), ns=(state.notes||[]).slice(0,3), out=state.people.filter(p=>p.out);
   const top=t.querySelector('.ticket-top');
@@ -1288,7 +1265,6 @@ function ticketExtras(o,b){
     try{ const r=await api('POST','/reviews',{token:TOKEN,planId:state.planId,venueId:vid,stars:n,text:row.querySelector('input').value}); toast(`Thanks. ${short(BY_ID[vid])} is now ★ ${r.avg.toFixed(1)} from ${r.count} ${r.count===1?'rating':'ratings'}.`); loadVstats(); }catch(e){ toast(e.message); } }); });
 }
 
-/* ---- retention: my plans, saved planet, reminder ---- */
 state.myPlans=[]; state.stats=null; state.profile=null;
 const STATUS={booked:'Booked',locked:'Locked in',planning:'Planning'};
 function applyProfile(d){ const p=state.profile; if(!p||state.meId) return;
@@ -1312,7 +1288,7 @@ $('#myPlansBtn').onclick=openMine; $('#myClose').onclick=closeMine;
 $('#myModal').addEventListener('click',e=>{ if(e.target.id==='myModal') closeMine(); });
 $('#myNew').onclick=()=>{ closeMine(); if(!state.planId&&state.step===1){ dismissIntro(); $('#planName').focus(); } else location.href='/?start=1'; };
 $('#myRemind').onclick=remindIcs;
-/* a real calendar reminder (.ics with an alert), 4 weeks after the last plan */
+
 function remindIcs(){
   const last=(state.myPlans||[]).find(x=>!x.sample), now=new Date();
   let at=last?new Date(last.date+'T10:00:00'):new Date(now); at.setDate(at.getDate()+28);
@@ -1327,13 +1303,10 @@ function remindIcs(){
   toast(`Reminder for ${at.toLocaleDateString('en-US',{month:'short',day:'numeric'})} saved. Open the file to add it to your calendar.`);
 }
 
-
-/* ---- judge guide ---- */
 $('#judgeBtn').onclick=()=>$('#judgeModal').classList.add('show');
 $('#judgeClose').onclick=()=>$('#judgeModal').classList.remove('show');
 $('#judgeModal').addEventListener('click',e=>{ if(e.target.id==='judgeModal') $('#judgeModal').classList.remove('show'); });
 
-/* ---- What's on ---- */
 let woFilter='date';
 function renderWhatsOn(){
   const today=DATA.checked_on,d=s=>new Date(s+'T12:00:00');
@@ -1348,7 +1321,6 @@ function renderWhatsOn(){
 function toggleWhatsOn(on){ const el=$('#whatson'); on=on??!el.classList.contains('show'); if(on) renderWhatsOn(); el.classList.toggle('show',on); $('#whatsonBtn').classList.toggle('hot',on); }
 $('#whatsonBtn').onclick=()=>toggleStrip();
 
-/* ================= loop ================= */
 const clock=new THREE.Clock(),tmp=new V3(),tmp2=new V3(),ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2,colA=new THREE.Color(),colB=new THREE.Color(); let fwTimer=0;
 function project(v,el,mode){ tmp.copy(v).project(cam); const vis=tmp.z<1&&tmp.x>-1.2&&tmp.x<1.2&&tmp.y>-1.2&&tmp.y<1.2; el.style.transform=`translate(${(tmp.x*.5+.5)*W}px,${(-tmp.y*.5+.5)*H}px) translate(-50%,${mode==='below'?'0':mode==='center'?'-50%':'-100%'})`; return vis; }
 function tick(){
@@ -1407,7 +1379,6 @@ function tick(){
   renderer.render(scene,cam); requestAnimationFrame(tick);
 }
 
-/* ================= boot ================= */
 (async function boot(){
   newDraft();
   { const q0=new URLSearchParams(location.search); intro=!/^\/p\//.test(location.pathname)&&!q0.has('start')&&!q0.has('checkout'); }
